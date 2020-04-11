@@ -1,0 +1,19 @@
+参考连接https://zhuanlan.zhihu.com/p/65686330
+阅读提纲
+总结： 业务日志里面报超时问题处理起来需要考虑的两个层面：云基础设施层和业务软件层
+1.业务超时 != 网络丢包 
+2.网络丢包为什么导致业务超时
+3.延迟到底有多大
+4.云基础设施网络丢包
+5.云基础设施网络抖动
+6.云产品的限速丢包
+7.运营商网络问题
+8.应用设置的Timeout引发的超时
+9.ECS云主机访问第三方API超时的例子
+10.ECS内网访问自建Redis超时的例子
+
+引申问题： 什么是业务日志，如何搭建业务日志系统   Flume + Kafka+Redis+ MySQL
+https://juejin.im/post/594b5fc71b69e60062a35f77
+什么是ECS服务器 
+Elastic Search 日志分析系统 Elasticsearch/Logstash/Kibana  ELK 组合
+https://juejin.im/post/5dcc9d9c51882559b02c0f5c
