@@ -23,3 +23,6 @@ websocket url check插件 chrome-extension://omalebghpgejjiaoknljcfmglgbpocdp/in
  2.手动websocket
  https://medium.com/factory-mind/websocket-node-js-express-step-by-step-using-typescript-725114ad5fe4
  https://javascript.info/websocket
+ 
+ 阮一峰 教程 https://juejin.im/entry/5918fc42128fe1005ccbeffb
+ 推荐的webpack 工具包:WebSocketd ,WebSocket-Node,Socket.IO,µWebSockets等
