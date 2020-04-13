@@ -1,0 +1,52 @@
+crypto 提供了加密功能
+1.OpenSSL Hash 2.HMAC 3.cipher： 加密 4.decipher： 解密 5.sign 6.verify
+crypto.getCiphers(): 加密算
+crypto.scrypt(password,salt,keylen,[options],callbacks): 异步加密
+crypto.randomBytes(size,[],callback):生成加密的强伪随机数
+crypto.createCipheriv(algrithm,key,iv)
+crypto.createDecipherive(algrithm,key,iv)
+1.类Certificate
+SPKAC 签名机制
+2.类cipher 加密数据 。2种方式，
+加密 例子 ： https://juejin.im/post/5dfc9d026fb9a016554ecd0a
+1。cipher.update(data,[input encoding],[output encoding]), 
+
+cipher.final([output encoding]) 生成数据,仅使用一次
+
+2.作为可读可写的stream流
+input = fs.createReadStream("")
+output = fs.createWriteStream("")
+input.pipe(cipher).pipe(output)
+
+3.类decipher 解密数据
+1.decipher.update(algrithm,key,iv)
+
+类 DiffieHellman 应用在握手阶段，交换对称密钥
+例子 https://juejin.im/post/59a603f7f265da24891580d0
+1.clientDH = cypto.createDiffieHellman(number)  
+2.clientDH.generateKeys()// ya = a^ xa mod p
+3.clientDH.computeSecrets(serverDH.getPublicKey()) // yb ^ xa mod p 
+
+类ECDH加密 曲线加密
+https://juejin.im/post/5d22d8646fb9a07ed911e53c
+1.A ： da(私钥）Ha = daG(公钥）   获得Hb  ,计算 daHb
+2.B ； db(私钥) Hb = dbG(公钥)    获得Ha , 计算 dbHa
+
+crypto.createECDH（“text”）
+
+类Hash
+ 错误校正、语音识别、信息安全
+解释 https://juejin.im/post/5c0bdc3b518825562558643b
+crypto.createHash('sha256')
+1.hash.update()
+hash.digest()
+2. 
+类 HMac
+crypto.createHmac('sha256', 'a secret')
+
+类sign
+类keyObject
+类certificate
+
+
+
