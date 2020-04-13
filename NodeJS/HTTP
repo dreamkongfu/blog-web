@@ -1,0 +1,37 @@
+Agent 类
+http.Agent // 管理链接池持久性和复用
+1.options{
+          keepAlive:boolean
+          keepAliveMsecs: number   //connection的链接时间和复用
+          maxSockets:number
+          maxFreeSockets:number
+          timeout:number
+}
+https://nodejs.org/docs/latest-v13.x/api/http.html#http_class_http_agent
+实例 https://juejin.im/entry/5b68f1a2518825620f580230
+
+server 类  https://nodejs.org/docs/latest-v13.x/api/http.html#http_class_http_clientrequest
+1.createServer 参数： 无，返回 server对象
+2.server.listen(port,host,callback())
+3.setTimeout([msecs][, callback]) // 在 时间内不再新建连接，避免连接数太多，timeout设置在链接上
+
+serverResponse类
+1.setHeaders(key,value)
+2.write(chunk,encoding,callback)
+3.end(,callback)
+4.setTimeout([msecs][, callback]) //timeout 设置在 response上面
+
+serverRequest 类
+setHeader(key,value)
+setHeader('cookie',[]);
+
+http Methods
+http.get(url,callback) 获取地址
+
+HTTPS 加密
+
+
+协议是无状态的，网页无法知道用户的状态，所以用session 和 cookies
+Express
+https://expressjs.com/en/api.html#app.param
+
