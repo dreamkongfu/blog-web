@@ -1,0 +1,25 @@
+websocket url check插件 chrome-extension://omalebghpgejjiaoknljcfmglgbpocdp/index.html
+
+1.WebSocket-Node 例子： 路由， 命令驱动，根据不同的命令，调用不同的方法
+      https://github.com/theturtle32/WebSocket-Node/blob/master/example/whiteboard/whiteboard.js
+      server:
+      app = express();
+      server = http.createServer(app);
+      ws = new webSocket();
+      wss = ws.Server(httpServer:server)
+      wss.on("request",(request)=>{
+         var connection = request.accept("example",request.connection);
+         connection.on("close",()=>{});
+         connection.on("message",(message)=>{
+                connection.sendUTF("");
+         });
+
+
+      })
+      client: https://github.com/theturtle32/WebSocket-Node/blob/master/example/whiteboard/public/client.js
+      文档
+      https://github.com/websockets/ws/blob/master/doc/ws.md#serverhandleupgraderequest-socket-head-callback
+      
+ 2.手动websocket
+ https://medium.com/factory-mind/websocket-node-js-express-step-by-step-using-typescript-725114ad5fe4
+ https://javascript.info/websocket
