@@ -1,0 +1,203 @@
+create multiple charts in one canvas:
+For each chart , create a unique data.
+四个heatMap 布局
+option = {
+    tooltip: {
+        position: 'top'
+    },
+    animation: false,
+    grid: [{
+        top: '55%',
+        width: '50%',
+        bottom:30,
+        left: '20%'
+    },{
+        top: '47%',
+        width: '50%',
+        bottom: '48%',
+        left: '20%'
+    },{
+        top: '55%',
+        width: '3%',
+        bottom: 30,
+        left: '72%'
+    },{
+        top: '47%',
+        width: '3%',
+        bottom: '48%',
+        left: '72%'
+    }],
+    xAxis: [{
+        type: 'category',
+        data: hours,
+        splitArea: {
+            show: true
+        },axisLabel:{
+            show:true
+        }
+    },{
+        type: 'category',gridIndex: 1,
+        data: hours,
+        splitArea: {
+            show: true
+        },
+        axisLabel:{
+            show:false
+        },
+        axisTick:{show:false},
+        axisLine:{show:false}
+    },{
+        type: 'category',gridIndex: 2,
+        data: ["All students"],
+        splitArea: {
+            show: true
+        },
+        axisLabel:{
+            show:true
+        },
+        axisTick:{show:false},
+        axisLine:{show:false}
+    },{
+        type: 'category',gridIndex: 3,
+        data: ["All students"],
+        splitArea: {
+            show: false
+        },
+        axisLabel:{
+            show:false
+        },
+        axisTick:{show:false},
+        axisLine:{show:false}
+    }],
+    yAxis: [{
+        type: 'category',
+        data: days,
+        splitArea: {
+            show: true
+        }
+    },{
+        type: 'category',gridIndex: 1,
+        data: ['overall'],
+        splitArea: {
+            show: true
+        }
+    },{
+        type: 'category',gridIndex: 2,
+        data: days,
+        splitArea: {
+            show: true
+        },axisLabel:{
+            show:false
+        },
+        axisTick:{show:false},
+        axisLine:{show:false}
+    },{
+        type: 'category',gridIndex: 3,
+        data: ['overall'],
+        splitArea: {
+            show: true
+        },axisLabel:{
+            show:false
+        },
+        axisTick:{show:false},
+        axisLine:{show:false}
+    }],
+    visualMap: {
+        min: 0,
+        max: 10,
+        calculable: true,
+        orient: 'horizontal',
+        left: 'center',
+        bottom: '15%'
+    },
+    series: [{
+        name: 'Punch Card',
+        type: 'heatmap',
+        
+        data: data,
+        label: {
+            show: true
+        }
+    },{
+        name: 'new Card',
+        type: 'heatmap',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        z:5,
+        data: [[0,0,5],[1,0,1],[2,0,0],[0,3,0],[0,4,0],[0,5,0]],
+        label: {
+            show: true
+        }
+    },{
+        name: 'right Card',
+        type: 'heatmap',xAxisIndex: 2,
+        yAxisIndex: 2,
+        data: [[0,0,5],[0,1,1],[0,2,0],[0,3,0],[0,4,0],[0,5,0]],
+        label: {
+            show: true
+        }
+    },{
+        name: 'center Card',
+        type: 'heatmap',xAxisIndex: 3,
+        yAxisIndex: 3,
+        data: [[0,0,5]],
+        label: {
+            show: true
+        }
+    }],
+知识点：
+var option = {
+    dataset: [{
+        source: [...],
+    }, {
+        source: [...]
+    }, {
+        source: [...]
+    }],
+    series: [{
+        // Use the third dataset.
+        datasetIndex: 2
+    }, {
+        // Use the second dataset.
+        datasetIndex: 1
+    }]
+}
+简单的使用dataSet 和 两个heatMap 布局
+option = {
+    legend: {},
+    tooltip: {},
+    dataset: [
+        {source: [
+            {product: 'Matcha Latte',year: '2015','value': 43.3},
+            {product: 'Milk Tea', year:'2016','value':83.1},
+            {product: 'Cheese Cocoa', year:'2017','value': 86.4},
+            {product: 'Walnut Brownie', year:'2018','value':72.4}
+        ]},{
+            
+            source: [
+            {product: 'Matcha Latte',year: '2015','value': 43.3},
+            {product: 'Milk Tea', year:'2015','value':83.1}
+        ]}
+    ],
+    grid: [{
+        top: '55%',
+        width: '50%',
+        bottom:30,
+        left: '20%'
+    },{
+        top: '47%',
+        width: '50%',
+        bottom: '48%',
+        left: '20%'
+    }],
+    xAxis: [{type: 'category'},{type: 'category',gridIndex:1}],
+    yAxis: [{type:'category'},{type: 'category',gridIndex:1}],
+    // Declare several bar series, each will be mapped
+    // to a column of dataset.source by default.
+    series: [
+        {type: 'heatmap'},
+        {type: 'heatmap', datasetIndex: 1,xAxisIndex: 1,
+        yAxisIndex: 1}
+    ]
+};
+
