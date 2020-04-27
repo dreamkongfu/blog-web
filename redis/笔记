@@ -1,0 +1,50 @@
+1.Redis业务问题
+https://juejin.im/post/5e9ff1766fb9a03c3b2bddab
+Redis锁未释放
+B的锁被A释放了
+数据库事务超时
+redis 分布式锁过期，业务逻辑没执行完
+
+2.Redis及其他缓存数据库的区别
+Redis， 支持数据备份，数据持久化，提供数据类型
+
+3.Redis 基础知识
+https://www.infoq.cn/article/uCp0QhTjRGvNl1Lvw6DJ
+Client - server ， TCP 通信 ， 共享内存
+
+持久化方式： snapshot， aof， vm, diskstore 在 2019年10/22日， 后面两种方式都没有成熟
+前面两种方式是在内存中执行
+
+4.Redis 分布式锁
+https://juejin.im/entry/5a502ac2518825732b19a595
+多进程 vs 多线程 锁， 多线程可以共享内存，在内存中标记锁，让其他线程看到， 
+多进程不共享内存，甚至在不同的锁
+Java 提供了并发处理锁的API，但是不能用于分布式锁，需要我们自己提供
+锁方案：1.基于数据库实现分布式
+2.基于缓存实现分布式锁
+4.基于Zookeeper 实现分布式锁
+1. 基于数据库
+   基于数据库表和基于数据库排他锁
+   基于数据库表： 建立一个锁的表， 字段为方法名和时间戳，需要锁住某个方法，插入一条纪录，
+   数据库只允许一个操作成功， 可以认为操作成功的线程获得了锁，执行完毕后，需要删除纪录
+   基于数据库排他锁，connection.setAutoCommit(false)
+   select * from lock where lock_name=xxx for update;
+            if(结果不为空){
+                //代表获取到锁
+                return;
+            }
+    通过for updatae 给数据库表加排他锁，其他线程无法在该行添加排他锁，阻塞。
+    导致两种可能，在超时前获得锁， 在超时前没有获得锁
+    获得锁释放锁： connection.commit(); 
+    主要有aql 超时异常性能不高
+2.基于zookeeper 
+  获取锁， 在ZK创建瞬时有序节点，判断是否为最小节点，最小节点则获取锁
+  释放锁， 销毁瞬时有序节点
+  阻塞， 在节点上创建监听器，如果节点发生变化，判断是否为最小节点，是则获取锁
+  使用第三方库： curator， acquire 获取锁，release 释放锁
+  性能不高，创建和删除节点都是在leader服务器执行，将数据同步到follower机器上，
+  并发问题，引起网络抖动。 
+  
+ 3.基于缓存的
+ 基于Redis的缓存 ， 性能比较高
+ 
