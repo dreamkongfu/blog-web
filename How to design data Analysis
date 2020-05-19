@@ -1,0 +1,11 @@
+一、 multiple dimensions:  A>B>C>D>E
+1.selector A: , B: , C: ,
+  radio selector: a list of dimensions to show dynamic interactions for whole dashboard
+  checkbox :   a list of dimensions to show dynamic interactions for whole dashboard, 
+2.map:location
+3.treeMap: level1 : dimension A, level2 dimensionB, level3 dimension C 
+click one item to expand next level
+4.heatmap: two dimension distribution 
+    color to show the degree of number
+
+
