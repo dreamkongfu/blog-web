@@ -1,0 +1,148 @@
+一、分配内存。ReentrantLock.lock()-> ReentrantLock.newCondition,waiterList.add(condition)->while(c){condition.await(time),} 释放锁 
+            所有线程一定会进入while循环，在里面等待，释放锁
+private final ReentrantLock lock;
+public ByteBuffer allocate(int size, long maxTimeToBlockMs) throws InterruptedException {
+        //检查内存大小，是否超过内存综合
+        if (size > this.totalMemory)
+            throw new IllegalArgumentException("Attempt to allocate " + size
+                                               + " bytes, but there is a hard limit of "
+                                               + this.totalMemory
+                                               + " on memory allocations.");
+
+        ByteBuffer buffer = null;
+        //加锁，内存安全的， 从这里开始计算内存大小，第一次加锁，线程安全 ， 在 计算完内存后 try{}finally{解锁} 分配内存
+        this.lock.lock();
+
+        if (this.closed) {
+            this.lock.unlock();
+            throw new KafkaException("Producer closed while allocating memory");
+        }
+
+        try {
+            //申请的内存大小是否等于默认的大小，返回内存块
+            // check if we have a free buffer of the right size pooled
+            if (size == poolableSize && !this.free.isEmpty())
+                return this.free.pollFirst();
+
+            // now check if the request is immediately satisfiable with the
+            // memory on hand or if we need to block
+            /**
+             * 计算内存池的内存的大小
+             *    1。 有内存
+             *    2。内存不足，有多少分配多少
+             */
+            int freeListSize = freeSize() * this.poolableSize;
+            if (this.nonPooledAvailableMemory + freeListSize >= size) {
+                // we have enough unallocated or pooled memory to immediately
+                // satisfy the request, but need to allocate the buffer
+                freeUp(size);
+                this.nonPooledAvailableMemory -= size;
+            } else {
+                // we are out of memory and will have to block
+                int accumulated = 0;
+                //创建一个condition， newCondition，第二次 加锁，使得有条件释放锁和加锁
+                Condition moreMemory = this.lock.newCondition();
+                try {
+                    long remainingTimeToBlockNs = TimeUnit.MILLISECONDS.toNanos(maxTimeToBlockMs);
+                    //等待内存队列
+                    this.waiters.addLast(moreMemory);
+                    // loop over and over until we have a buffer or have reserved
+                    // enough memory to allocate one
+                    /**
+                     * 如果内存小于申请的内存，一直等，condition 安全的await，线程等待
+                     *   1。时间到了
+                     *   2。被唤醒，如果有人释放内存，这个就可以被唤醒
+                     * */
+
+                    while (accumulated < size) {
+                        long startWaitNs = time.nanoseconds();
+                        long timeNs;
+                        boolean waitingTimeElapsed;
+                        try {
+                            waitingTimeElapsed = !moreMemory.await(remainingTimeToBlockNs, TimeUnit.NANOSECONDS);
+                        } finally {
+                            long endWaitNs = time.nanoseconds();
+                            timeNs = Math.max(0L, endWaitNs - startWaitNs);
+                            recordWaitTime(timeNs);
+                        }
+
+                        if (this.closed)
+                            throw new KafkaException("Producer closed while allocating memory");
+
+                        if (waitingTimeElapsed) {
+                            this.metrics.sensor("buffer-exhausted-records").record();
+                            throw new BufferExhaustedException("Failed to allocate memory within the configured max blocking time " + maxTimeToBlockMs + " ms.");
+                        }
+
+                        remainingTimeToBlockNs -= timeNs;
+
+                        // check if we can satisfy this request from the free list,
+                        // otherwise allocate memory
+                        /**
+                         * 1。内存就够了
+                         * 2 内存不够，或者32K不是默认的16K
+                         */
+                        if (accumulated == 0 && size == this.poolableSize && !this.free.isEmpty()) {
+                            // just grab a buffer from the free list
+                            buffer = this.free.pollFirst();
+                            accumulated = size;
+                        } else {
+                            // we'll need to allocate memory, but we may only get
+                            // part of what we need on this iteration
+                            freeUp(size - accumulated);
+                            int got = (int) Math.min(size - accumulated, this.nonPooledAvailableMemory);
+                            this.nonPooledAvailableMemory -= got;
+                            accumulated += got;
+                        }
+                    }
+                    // Don't reclaim memory on throwable since nothing was thrown
+                    accumulated = 0;
+                } finally {
+                    // When this loop was not able to successfully terminate don't loose available memory
+                    this.nonPooledAvailableMemory += accumulated;
+                    this.waiters.remove(moreMemory);
+                }
+            }
+        } finally {
+            // signal any additional waiters if there is more memory left
+            // over for them
+            try {
+                if (!(this.nonPooledAvailableMemory == 0 && this.free.isEmpty()) && !this.waiters.isEmpty())
+                    this.waiters.peekFirst().signal();
+            } finally {
+                // Another finally... otherwise find bugs complains
+                lock.unlock();
+            }
+        }
+        // 分配内存
+        if (buffer == null)
+            return safeAllocateByteBuffer(size);
+        else
+            return buffer;
+    }
+    
+    二。释放内存
+    ReentrantLock-> lock() -> condition = waiter.peekFirst(); -> condition.signal()
+    public void deallocate(ByteBuffer buffer, int size) {
+        lock.lock();
+        /**
+         * 刚好是内存的大小，就放在内存池里，为什么是默认的内存Batch大小？
+         * 否则，交给GC
+         */
+        try {
+            if (size == this.poolableSize && size == buffer.capacity()) {
+                buffer.clear();
+                this.free.add(buffer);
+            } else {
+                this.nonPooledAvailableMemory += size;
+            }
+            //唤醒线程，Condition.signal()
+            Condition moreMem = this.waiters.peekFirst();
+            if (moreMem != null)
+                moreMem.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
+    
+    
