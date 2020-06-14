@@ -1,0 +1,60 @@
+ 1.等待获取元数据，sender线程被唤醒，metaData线程阻塞
+    sender.wakeUp() -> while(c){metaData.awaitUpdate()}
+ private ClusterAndWaitTime waitOnMetadata(String topic, Integer partition, long maxWaitMs) throws InterruptedException {
+        // add topic to metadata topic list if it is not there already and reset expiry
+        //添加topic
+        metadata.add(topic);
+        //初始化对象
+        Cluster cluster = metadata.fetch();
+        //没有元数据信息，等于NULL
+        Integer partitionsCount = cluster.partitionCountForTopic(topic);
+        // Return cached metadata if we have it, and if the record's partition is either undefined
+        // or within the known partition range
+        if (partitionsCount != null && (partition == null || partition < partitionsCount))
+            return new ClusterAndWaitTime(cluster, 0);
+        //纪录当前时间
+        long begin = time.milliseconds();
+        //最多等待的剩余时间
+        long remainingWaitMs = maxWaitMs;
+        //已经花了多少时间
+        long elapsed;
+        // Issue metadata requests until we have metadata for the topic or maxWaitTimeMs is exceeded.
+        // In case we already have cached metadata for the topic, but the requested partition is greater
+        // than expected, issue an update request only once. This is necessary in case the metadata
+        // is stale and the number of partitions for this topic has increased in the meantime.
+        do {
+            log.trace("Requesting metadata update for topic {}.", topic);
+            //获取元数据的版本号
+            int version = metadata.requestUpdate();
+            /**
+             * 这个线程完成获取元数据的
+             */
+            sender.wakeup();
+            try {
+                /**
+                 * 同步等待sender线程调用networkClient获取元数据，更新metadata
+                 */
+                metadata.awaitUpdate(version, remainingWaitMs);
+            } catch (TimeoutException ex) {
+                //没有抛超时异常，说明获得元数据
+                // Rethrow with original maxWaitMs to prevent logging exception with remainingWaitMs
+                throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
+            }
+            cluster = metadata.fetch();
+            elapsed = time.milliseconds() - begin;
+            if (elapsed >= maxWaitMs)
+                throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
+            if (cluster.unauthorizedTopics().contains(topic))
+                throw new TopicAuthorizationException(topic);
+            remainingWaitMs = maxWaitMs - elapsed;
+            //获取到元数据
+            partitionsCount = cluster.partitionCountForTopic(topic);
+        } while (partitionsCount == null); // 获取元数据，一定不为NULL 吗？ 如果获取到的数据有问题呢？
+
+        if (partition != null && partition >= partitionsCount) {
+            throw new KafkaException(
+                    String.format("Invalid partition given with record: %d is not in the range [0...%d).", partition, partitionsCount));
+        }
+
+        return new ClusterAndWaitTime(cluster, elapsed);
+    }
