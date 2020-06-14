@@ -164,3 +164,17 @@ public class CopyOnWriteMap<K, V> implements ConcurrentMap<K, V> {
     }
 
 }
+二、读写分离的同步Map调用
+用currentMap 获取队列， 读写分离锁的经典应用，多重读 写锁，多个线程可以在同一个方法内，多重判断是否存在条件改变
+private Deque<ProducerBatch> getOrCreateDeque(TopicPartition tp) {
+        //直接从batches获取队列，不为空直接返回，为空创建队列，添加到MAP中
+        Deque<ProducerBatch> d = this.batches.get(tp);
+        if (d != null)
+            return d;
+        d = new ArrayDeque<>();
+        Deque<ProducerBatch> previous = this.batches.putIfAbsent(tp, d);
+        if (previous == null)
+            return d;
+        else
+            return previous;
+    }
