@@ -1,1 +1,102 @@
+一分段锁，synchronize(dp){if(){}}=>some code => synchronize(dp){if(){}}    锁粒度小，多个线程可以在同一个方法的不同代码段，
+所以多重判断是否条件发生变化
 
+public RecordAppendResult append(TopicPartition tp,
+                                     long timestamp,
+                                     byte[] key,
+                                     byte[] value,
+                                     Header[] headers,
+                                     Callback callback,
+                                     long maxTimeToBlock,
+                                     boolean abortOnNewBatch,
+                                     long nowMs) throws InterruptedException {
+        // We keep track of the number of appending thread to make sure we do not miss batches in
+        // abortIncompleteBatches().
+        appendsInProgress.incrementAndGet();
+        ByteBuffer buffer = null;
+        if (headers == null) headers = Record.EMPTY_HEADERS;
+        try {
+            // check if we have an in-progress batch
+            /**
+             * 获取对应的队列
+             */
+            Deque<ProducerBatch> dq = getOrCreateDeque(tp);
+            /**
+             * 线程安全，锁住队列，线程1，2，3，4 同时进入一个方法内
+             */
+            synchronized (dq) {
+                if (closed)
+                    throw new KafkaException("Producer closed while send in progress");
+                RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callback, dq, nowMs);
+                if (appendResult != null)
+                    return appendResult;
+            }
+            /**
+             * 锁释放，本质就是分段加锁，缩小锁的粒度
+             */
+            // we don't have an in-progress record batch try to allocate a new batch
+            if (abortOnNewBatch) {
+                // Return a result that will cause another call to append.
+                return new RecordAppendResult(null, false, false, true);
+            }
+
+            byte maxUsableMagic = apiVersions.maxUsableProduceMagic();
+            //创建Batch，默认16K， 计算Batches的大小， 取（默认值 和 消息大小）的最大值， 调整Batch大小 》》消息大小
+            int size = Math.max(this.batchSize, AbstractRecords.estimateSizeInBytesUpperBound(maxUsableMagic, compression, key, value, headers));
+            log.trace("Allocating a new {} byte message buffer for topic {} partition {}", size, tp.topic(), tp.partition());
+            //分配内存 ，线程安全的，加锁了
+            buffer = free.allocate(size, maxTimeToBlock);
+
+            // Update the current time in case the buffer allocation blocked above.
+            nowMs = time.milliseconds();
+            //再次尝试添加数据，但是Batch还没有被添加
+            synchronized (dq) {
+                // Need to check if producer is closed again after grabbing the dequeue lock.
+                if (closed)
+                    throw new KafkaException("Producer closed while send in progress");
+
+                RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callback, dq, nowMs);
+                if (appendResult != null) {
+                    // Somebody else found us a batch, return the one we waited for! Hopefully this doesn't happen often...
+                    return appendResult;
+                }
+                /**
+                 * 分装Batch
+                 */
+                MemoryRecordsBuilder recordsBuilder = recordsBuilder(buffer, maxUsableMagic);
+                ProducerBatch batch = new ProducerBatch(tp, recordsBuilder, nowMs);
+                /**
+                 * 往Batch里面写数据
+                 */
+                FutureRecordMetadata future = Objects.requireNonNull(batch.tryAppend(timestamp, key, value, headers,
+                        callback, nowMs));
+                /**
+                 * 将Batch添加到队尾
+                 */
+                dq.addLast(batch);
+                incomplete.add(batch);
+
+                // Don't deallocate this buffer in the finally block as it's being used in the record batch
+                buffer = null;
+                return new RecordAppendResult(future, dq.size() > 1 || batch.isFull(), true, false);
+            }
+        } finally {
+            //释放内存
+            if (buffer != null)
+                free.deallocate(buffer);
+            appendsInProgress.decrementAndGet();
+        }
+    }
+二。用currentMap 获取队列， 读写分离锁的经典应用，多重读 写锁，多个线程可以在同一个方法内，多重判断是否存在条件改变
+private Deque<ProducerBatch> getOrCreateDeque(TopicPartition tp) {
+        //直接从batches获取队列，不为空直接返回，为空创建队列，添加到MAP中
+        Deque<ProducerBatch> d = this.batches.get(tp);
+        if (d != null)
+            return d;
+        d = new ArrayDeque<>();
+        Deque<ProducerBatch> previous = this.batches.putIfAbsent(tp, d);
+        if (previous == null)
+            return d;
+        else
+            return previous;
+    }
