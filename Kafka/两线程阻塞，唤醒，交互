@@ -58,3 +58,73 @@
 
         return new ClusterAndWaitTime(cluster, elapsed);
     }
+    二。metaData 等待版本号更新
+    synchronize 锁方法=》 while(){wait(time)}
+     public synchronized void awaitUpdate(final int lastVersion, final long maxWaitMs) throws InterruptedException {
+        if (maxWaitMs < 0) {
+            throw new IllegalArgumentException("Max time to wait for metadata updates should not be < 0 milli seconds");
+        }
+        long begin = System.currentTimeMillis();
+        long remainingWaitMs = maxWaitMs;
+        /*
+         *   比较版本号，版本号小，说明不是最新的
+         *
+         */
+        while (this.version <= lastVersion) {
+            //还有剩余时间，就等剩余时间，两种情况被唤醒：时间到了被唤醒，或者获得元数据
+            if (remainingWaitMs != 0)
+                wait(remainingWaitMs); // 阻塞线程
+            long elapsed = System.currentTimeMillis() - begin;
+            if (elapsed >= maxWaitMs)
+                throw new TimeoutException("Failed to update metadata after " + maxWaitMs + " ms.");
+            remainingWaitMs = maxWaitMs - elapsed;
+        }
+    }
+    三。metaData 更新版本号，唤醒自身线程
+   public synchronized void update(Cluster cluster, long now) {
+        Objects.requireNonNull(cluster, "cluster should not be null");
+
+        this.needUpdate = false;
+        this.lastRefreshMs = now;
+        this.lastSuccessfulRefreshMs = now;
+        this.version += 1; // 更新版本号
+
+        if (topicExpiryEnabled) {
+            // Handle expiry of topics from the metadata refresh set.
+            for (Iterator<Map.Entry<String, Long>> it = topics.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<String, Long> entry = it.next();
+                long expireMs = entry.getValue();
+                if (expireMs == TOPIC_EXPIRY_NEEDS_UPDATE)
+                    entry.setValue(now + TOPIC_EXPIRY_MS);
+                else if (expireMs <= now) {
+                    it.remove();
+                    log.debug("Removing unused topic {} from the metadata list, expiryMs {} now {}", entry.getKey(), expireMs, now);
+                }
+            }
+        }
+
+        for (Listener listener: listeners)
+            listener.onMetadataUpdate(cluster);
+
+        String previousClusterId = cluster.clusterResource().clusterId();
+
+        if (this.needMetadataForAllTopics) {
+            // the listener may change the interested topics, which could cause another metadata refresh.
+            // If we have already fetched all topics, however, another fetch should be unnecessary.
+            this.needUpdate = false;
+            this.cluster = getClusterForCurrentTopics(cluster);
+        } else {
+            this.cluster = cluster;
+        }
+
+        // The bootstrap cluster is guaranteed not to have any useful information
+        if (!cluster.isBootstrapConfigured()) {
+            String clusterId = cluster.clusterResource().clusterId();
+            if (clusterId == null ? previousClusterId != null : !clusterId.equals(previousClusterId))
+                log.info("Cluster ID: {}", cluster.clusterResource().clusterId());
+            clusterResourceListeners.onUpdate(cluster.clusterResource());
+        }
+
+        notifyAll();// update()唤醒等待的metaData线程 , this.metaData.waitUpdate()
+        log.debug("Updated cluster metadata version {} to {}", this.version, this.cluster);
+    }
