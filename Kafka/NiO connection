@@ -125,7 +125,71 @@ private void pollSelectionKeys(Iterable<SelectionKey> selectionKeys,
         }
     }
 
+三。解决粘包和拆包问题
 
+/**
+     * adds a receive to staged receives
+     */
+    private void addToStagedReceives(KafkaChannel channel, NetworkReceive receive) {
+        if (!stagedReceives.containsKey(channel))
+            stagedReceives.put(channel, new ArrayDeque<NetworkReceive>());
+
+        Deque<NetworkReceive> deque = stagedReceives.get(channel);
+        deque.add(receive);
+    }
+    
+    public NetworkReceive read() throws IOException {
+        NetworkReceive result = null;
+
+        if (receive == null) {
+            receive = new NetworkReceive(maxReceiveSize, id);
+        }
+
+        receive(receive);
+        if (receive.complete()) {
+            receive.payload().rewind();
+            result = receive;
+            receive = null;
+        }
+        return result;
+    }
+
+readFrom ,先获取大小，然后 再 分配内存
+
+public long readFrom(ScatteringByteChannel channel) throws IOException {
+        int read = 0;
+        if (size.hasRemaining()) {
+            int bytesRead = channel.read(size);
+            if (bytesRead < 0)
+                throw new EOFException();
+            read += bytesRead;
+            if (!size.hasRemaining()) {
+                size.rewind();
+                int receiveSize = size.getInt();
+                if (receiveSize < 0)
+                    throw new InvalidReceiveException("Invalid receive (size = " + receiveSize + ")");
+                if (maxSize != UNLIMITED && receiveSize > maxSize)
+                    throw new InvalidReceiveException("Invalid receive (size = " + receiveSize + " larger than " + maxSize + ")");
+                requestedBufferSize = receiveSize; //may be 0 for some payloads (SASL)
+                if (receiveSize == 0) {
+                    buffer = EMPTY_BUFFER;
+                }
+            }
+        }
+        if (buffer == null && requestedBufferSize != -1) { //we know the size we want but havent been able to allocate it yet
+            buffer = memoryPool.tryAllocate(requestedBufferSize);
+            if (buffer == null)
+                log.trace("Broker low on memory - could not allocate buffer of size {} for source {}", requestedBufferSize, source);
+        }
+        if (buffer != null) {
+            int bytesRead = channel.read(buffer);
+            if (bytesRead < 0)
+                throw new EOFException();
+            read += bytesRead;
+        }
+
+        return read;
+    }
 
 
 
