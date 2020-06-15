@@ -1,0 +1,183 @@
+https://juejin.im/post/5c130cb5e51d4546212f4ab9
+作者：aTaller
+Java NIO之Selector
+前面两篇文章介绍了NIO中的Buffer和Channel，有了之前的基础，这篇文章来介绍一下另一个比较重要的概念----Selector。我们知道系统线程的切换是消耗系统资源的，如果我们每一个连接都用一个线程来管理，资源的开销会非常大，这个时候就可以用Selector。通过Selector可以实现一个线程管理多个Channel，如下图：
+
+Selector
+Selector使用
+打开
+使用之前获得一个Selector对象
+
+Selector selector = Selector.open();
+复制代码
+注册
+要把Channel注册到Selector上，Channel必需是非阻塞的。因此FileChannel是无法注册到Selector的。如果注册的时候不调用configureBlocking方法就会抛出IllegalBlockingModeException异常。
+
+SelectionKey
+SelectionKey共有四种
+
+OP_ACCEPT
+OP_CONNECT
+OP_WRITE
+OP_READ
+ServerSocketChannel注册
+serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+复制代码
+ServerSocketChannel的Operation Set只能是OP_ACCEPT，如果在注册的时候添加了OP_CONNECT、OP_WRITE或OP_READ会报异常。例如按照以下写法
+
+serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT | SelectionKey.OP_CONNECT);
+复制代码
+就会抛出下面的异常
+
+Exception in thread "main" java.lang.IllegalArgumentException
+	at java.nio.channels.spi.AbstractSelectableChannel.register(AbstractSelectableChannel.java:199)
+	at java.nio.channels.SelectableChannel.register(SelectableChannel.java:280)
+	at com.nio.sample.selector.SelectorServerSocketChannelSample.main(SelectorServerSocketChannelSample.java:27)
+复制代码
+ServerSocketChannel的validOps可以看到只有OP_ACCEPT是合法的
+
+public final int validOps() {
+    return SelectionKey.OP_ACCEPT;
+}
+复制代码
+SocketChannel注册
+socketChannel.register(selector, SelectionKey.OP_CONNECT);
+复制代码
+SocketChannel的Operation Set只能是OP_CONNECT、OP_WRITE和OP_READ，如果在注册的时候添加了OP_ACCEPT同样会报异常。
+
+SocketChannel的validOps可以看到只有OP_READ、OP_WRITE、OP_CONNECT是合法的
+
+public final int validOps() {
+    return (SelectionKey.OP_READ
+            | SelectionKey.OP_WRITE
+            | SelectionKey.OP_CONNECT);
+}
+复制代码
+注册成功之后，我们通过一个demo实现，客户端和服务端交互：
+
+服务端：
+
+public static void main(String[] args) throws Exception {
+
+	ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+
+	serverSocketChannel.socket().bind(new InetSocketAddress(9000));
+	serverSocketChannel.configureBlocking(false);
+
+	Selector selector = Selector.open();
+
+	// configureBlocking 如果不设置非阻塞，register的时候会报异常
+	// java.nio.channels.IllegalBlockingModeException
+	serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+
+	while (true) {
+
+		int selected = selector.select();
+		
+		if (selected > 0) {
+
+			Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+			while (iterator.hasNext()) {
+
+				SelectionKey selectionKey = iterator.next();
+				iterator.remove();
+
+				if (selectionKey.isAcceptable()) {
+					System.err.println("Acceptable");
+					SocketChannel socketChannel = serverSocketChannel.accept();
+					socketChannel.configureBlocking(false);
+					socketChannel.register(selector, SelectionKey.OP_READ);
+				} else if (selectionKey.isReadable()) {
+					System.err.println("Readable");
+					SocketChannel socketChannel = (SocketChannel) selectionKey.channel();
+					ByteBuffer buffer = ByteBuffer.allocate(128);
+					socketChannel.read(buffer);
+					System.out.println("接收来自客户端的数据：" + new String(buffer.array()));
+					selectionKey.interestOps(SelectionKey.OP_WRITE);
+				} else if (selectionKey.isWritable()) {
+					System.err.println("Writable");
+					SocketChannel channel = (SocketChannel) selectionKey.channel();
+					String content = "向客户端发送数据 : " + System.currentTimeMillis();
+					ByteBuffer buffer = ByteBuffer.wrap(content.getBytes());
+					channel.write(buffer);
+					selectionKey.interestOps(SelectionKey.OP_READ);
+				}
+			}
+		}
+	}
+}
+复制代码
+我们来看一下服务端的逻辑
+
+1、服务端注册到selector，然后interest set（ops）设置为SelectionKey.OP_ACCEPT等待客户端连接。
+
+2、客户端连接到达，调用到selectionKey.isAcceptable()方法，接收客户端连接，然后获得一个channel，并把
+
+interest set设置为SelectionKey.OP_READ等待从通道中读数据。
+
+3、当客户端发送的数据到达，selectionKey.isReadable() 被触发，接收客户端的数据并打印，然后把selectionKey.interestOps 设置为SelectionKey.OP_WRITE，向客户端发送数据。
+
+4、当可写之后selectionKey.isWritable()被触发，向客户端发送数据，同时selectionKey.interestOps再次设置为
+
+SelectionKey.OP_READ等待客户端数据到达。
+
+客户端:
+
+public static void main(String[] args) throws IOException {
+
+	SocketChannel socketChannel = SocketChannel.open();
+
+	socketChannel.configureBlocking(false);
+	Selector selector = Selector.open();
+	socketChannel.register(selector, SelectionKey.OP_CONNECT);
+
+	socketChannel.connect(new InetSocketAddress("127.0.0.1", 9000));
+
+	while (true) {
+		int select = selector.select();
+
+		if (select > 0) {
+
+			Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+			while (iterator.hasNext()) {
+
+				SelectionKey selectionKey = iterator.next();
+
+				if (selectionKey.isConnectable()) {
+					System.err.println("Connectable");
+					SocketChannel clientChannel = (SocketChannel) selectionKey.channel();
+					clientChannel.finishConnect();
+					selectionKey.interestOps(SelectionKey.OP_WRITE);
+
+				} else if (selectionKey.isReadable()) {
+					System.out.println("Readable");
+					SocketChannel channel = (SocketChannel) selectionKey.channel();
+					ByteBuffer buffer = ByteBuffer.allocate(128);
+					channel.read(buffer);
+					selectionKey.interestOps(SelectionKey.OP_WRITE);
+					System.out.println("收到服务端数据" + new String(buffer.array()));
+
+				} else if (selectionKey.isWritable()) {
+					SocketChannel clientChannel = (SocketChannel) selectionKey.channel();
+					String str = "qiwoo mobile";
+					ByteBuffer buffer = ByteBuffer.wrap(str.getBytes());
+					clientChannel.write(buffer);
+					selectionKey.interestOps(SelectionKey.OP_READ);
+					System.out.println("向服务端发送数据" + new String(buffer.array()));
+				}
+
+				iterator.remove();
+			}
+		}
+	}
+}
+复制代码
+再来看一下服务端的逻辑
+
+1、向服务端发起连接请求。
+
+2、selectionKey.isConnectable()被触发，连接成功之后，selectionKey.interestOps设置为SelectionKey.OP_WRITE，准备向服务端发送数据。
+
+3、channel可写之后selectionKey.isWritable()被触发，向服务端发送数据，之后selectionKey.interestOps设置为SelectionKey.OP_READ，等待服务端过来的数据。
+
+4、服务端数据发过来之后，selectionKey.isReadable()被触发，读取服务端数据之后selectionKey.interestOps设置为SelectionKey.OP_WRITE向服务端写数据
