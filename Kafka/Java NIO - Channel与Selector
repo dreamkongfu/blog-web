@@ -1,0 +1,188 @@
+Java NIO - Channel与Selector
+https://juejin.im/post/5d249af5e51d4510727c8114
+声明：
+
+本文由Yasin Shaw原创，首发于个人网站yasinshaw.com和公众号"xy的技术圈"。
+
+如果需要转载请联系我（微信：yasinshaw）并在文章开头显著的地方注明出处。
+
+关注公众号即可获取学习资源或加入技术交流群。
+
+Java NIO有三个核心的组件：Buffer、Channel和Selector。
+
+在上一篇文章中，我们已经介绍了Buffer，这篇文章主要介绍剩下两个组件：Channel和Selector。
+
+Selector与Channel的关系
+Channel
+Channel翻译过来是“通道”的意思，所有的Java NIO都要经过Channel。一个Channel对象其实就对应了一个IO连接。Java NIO中主要有以下Channel实现：
+
+FileChannel
+DatagramChannel
+SocketChannel
+ServerSocketChannel
+分别用于处理文件IO、UDP、TCP客户端、TCP服务端。
+
+这里以ServerSocketChannel和SocketChannel为例，介绍一些常用的方法。
+
+// server:
+ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+serverSocketChannel.bind(new InetSocketAddress("127.0.0.1", 8080));
+SocketChannel socketChannel = serverSocketChannel.accept();
+ByteBuffer buffer = ByteBuffer.allocateDirect(1024);
+int readBytes = socketChannel.read(buffer);
+if (readBytes > 0) {
+    buffer.flip();
+    byte[] bytes = new byte[buffer.remaining()];
+    buffer.get(bytes);
+    String body = new String(bytes, StandardCharsets.UTF_8);
+    System.out.println("server 收到：" + body);
+}
+复制代码
+对于服务端来说，先用open方法创建一个对象，然后使用bind方法绑定端口。
+
+绑定以后，使用accept方法等待新的连接进来，这个方法是阻塞的。一旦有了新的连接，才会解除阻塞。再次调用可以阻塞等待下一个连接。
+
+与Buffer配合，使用read方法可以把数据从Channel读到Buffer里面，然后做后续处理。
+
+// Client:
+SocketChannel socketChannel = SocketChannel.open();
+socketChannel.connect(new InetSocketAddress("127.0.0.1", 8080));
+ByteBuffer buffer = ByteBuffer.allocateDirect(1024);
+buffer.put("hi, 这是client".getBytes(StandardCharsets.UTF_8));
+buffer.flip();
+socketChannel.write(buffer);
+复制代码
+对于客户端来说，有一些微小的区别。客户端不需要bind监听端口，而是直接connect去尝试连接服务端。
+
+同样与Buffer配合，Channel使用write方法可以把数据从Buffer写到Channel里，然后后续就可以做网络传输了。
+
+Selector
+Selector翻译过来叫做“选择器”，Selector允许一个线程处理多个Channel。Selector的应用场景是：如果你的应用打开了多个连接（Channel），但每个连接的流量都很低。比如：聊天服务器或者HTTP服务器。
+
+使用Selector很简单。使用open方法创建一个Selector对象，然后把Channel注册到Selector上。
+
+// 创建一个Selector
+Selector selector = Selector.open();
+
+// 把一个Channel注册到Selector
+socketChannel.configureBlocking(false);
+socketChannel.register(selector, SelectionKey.OP_READ);
+复制代码
+需要注意的是，一定要使用configureBlocking(false)把Channel设置成非阻塞模式，否则会抛出IllegalBlockingModeException异常。
+
+Channel的register有两个重载方法：
+
+SelectionKey register(Selector sel, int ops) {
+    return register(sel, ops, null);
+}
+SelectionKey register(Selector sel, int ops, Object att);
+复制代码
+对于ops参数，即selector要关心这个Channel的事件类型，在SelectionKey类里面有这样几个常量：
+
+OP_READ 可以从Channel读数据
+OP_WRITE 可以写数据到Channel
+OP_CONNECT 连接上了服务器
+OP_ACCEPT 有新的连接进来了
+如果你对不止一种事件感兴趣，使用或运算符即可，如下：
+
+int interestSet = SelectionKey.OP_READ | SelectionKey.OP_WRITE;
+复制代码
+需要注意的是，FileChannel只有阻塞模式，不支持非阻塞模式，所以它是没有register方法的！
+
+第三个参数att是attachment的缩写，代表可以传一个“附件”进去。在返回的SelectionKey对象里面，可以获取以下对象：
+
+channel()：获取Channel
+selector()：获取Selector
+attachment()：获取附件
+attach(obj)：更新附件
+除此之外，还有一些判断当前状态的方法：
+
+isReadable()
+isWritable()
+isConnectable()
+isAcceptable()
+一般来说，我们很少直接使用单个的SelectionKey，而是从Selector里面轮询所有的SelectionKey，比如：
+
+轮询
+ while (selector.select() > 0) {
+     Iterator<SelectionKey> keyIterator = selector.selectedKeys().iterator();
+     while(keyIterator.hasNext()) {
+         SelectionKey key = keyIterator.next();
+         if (key.isReadable()) {
+             SocketChannel socketChannel = (SocketChannel) key.channel();
+             // read
+         } else if(key.isAcceptable()) {
+             // accept
+         }
+         // 其它条件
+         keyIterator.remove();
+     }
+ }
+复制代码
+Selector可以返回两种SelectionKey集合：
+
+keys()：已注册的键的集合
+selectedKeys()：已选择的键的集合
+并不是所有注册过的键都仍然有效，有些可能已经被cancel()方法被调用过的键。所以一般来说，我们轮询selectedKeys()方法。
+
+完整的示例代码
+以下是一个完整的Server-Client Demo：
+
+Server：
+public class Server {
+    public static void main(String[] args) {
+        try (
+                ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+                Selector selector = Selector.open();
+        ) {
+            serverSocketChannel.bind(new InetSocketAddress("127.0.0.1", 8080));
+            serverSocketChannel.configureBlocking(false);
+            System.out.println("server 启动...");
+            serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+            while (selector.select() > 0) {
+                Iterator<SelectionKey> keyIterator = selector.selectedKeys().iterator();
+                while(keyIterator.hasNext()) {
+                    SelectionKey key = keyIterator.next();
+                    if (key.isReadable()) {
+                        ByteBuffer buffer = ByteBuffer.allocateDirect(1024);
+                        SocketChannel socketChannel = (SocketChannel) key.channel();
+                        int readBytes = socketChannel.read(buffer);
+                        if (readBytes > 0) {
+                            buffer.flip();
+                            byte[] bytes = new byte[buffer.remaining()];
+                            buffer.get(bytes);
+                            String body = new String(bytes, StandardCharsets.UTF_8);
+                            System.out.println("server 收到：" + body);
+                        }
+                    } else if(key.isAcceptable()) {
+                        SocketChannel socketChannel = serverSocketChannel.accept();
+                        socketChannel.configureBlocking(false);
+                        socketChannel.register(selector, SelectionKey.OP_READ);
+                    }
+                    keyIterator.remove();
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+复制代码
+Client：
+public class Client {
+    public static void main(String[] args) {
+        try (
+                SocketChannel socketChannel = SocketChannel.open();
+        ) {
+            socketChannel.connect(new InetSocketAddress("127.0.0.1", 8080));
+            System.out.println("client 启动...");
+
+            ByteBuffer buffer = ByteBuffer.allocateDirect(1024);
+            buffer.put("hi, 这是client".getBytes(StandardCharsets.UTF_8));
+            buffer.flip();
+            socketChannel.write(buffer);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
