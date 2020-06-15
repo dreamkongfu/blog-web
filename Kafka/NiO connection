@@ -1,4 +1,4 @@
-一，connection
+一，尝试建立connection，channel 往selector 注册 OP_Connct 事件
 import java.nio.channels.SocketChannel;
 private final java.nio.channels.Selector nioSelector;
 
@@ -55,3 +55,77 @@ public void connect(String id, InetSocketAddress address, int sendBufferSize, in
             key.interestOps(0);
         }
     }
+二、发送连接请求
+private void pollSelectionKeys(Iterable<SelectionKey> selectionKeys,
+                                   boolean isImmediatelyConnected,
+                                   long currentTimeNanos) {
+        Iterator<SelectionKey> iterator = selectionKeys.iterator();
+        while (iterator.hasNext()) {
+            SelectionKey key = iterator.next();
+            iterator.remove();
+            KafkaChannel channel = channel(key);
+
+            // register all per-connection metrics at once
+            sensors.maybeRegisterConnectionMetrics(channel.id());
+            if (idleExpiryManager != null)
+                idleExpiryManager.update(channel.id(), currentTimeNanos);
+
+            try {
+
+                /* complete any connections that have finished their handshake (either normally or immediately) */
+                if (isImmediatelyConnected || key.isConnectable()) {
+                    if (channel.finishConnect()) {
+                        this.connected.add(channel.id());
+                        this.sensors.connectionCreated.record();
+                        SocketChannel socketChannel = (SocketChannel) key.channel();
+                        log.debug("Created socket with SO_RCVBUF = {}, SO_SNDBUF = {}, SO_TIMEOUT = {} to node {}",
+                                socketChannel.socket().getReceiveBufferSize(),
+                                socketChannel.socket().getSendBufferSize(),
+                                socketChannel.socket().getSoTimeout(),
+                                channel.id());
+                    } else
+                        continue;
+                }
+
+                /* if channel is not ready finish prepare */
+                if (channel.isConnected() && !channel.ready())
+                    channel.prepare();
+
+                /* if channel is ready read from any connections that have readable data */
+                if (channel.ready() && key.isReadable() && !hasStagedReceive(channel)) {
+                    NetworkReceive networkReceive;
+                    while ((networkReceive = channel.read()) != null)
+                        addToStagedReceives(channel, networkReceive);
+                }
+
+                /* if channel is ready write to any sockets that have space in their buffer and for which we have data */
+                if (channel.ready() && key.isWritable()) {
+                    Send send = channel.write();
+                    if (send != null) {
+                        this.completedSends.add(send);
+                        this.sensors.recordBytesSent(channel.id(), send.size());
+                    }
+                }
+
+                /* cancel any defunct sockets */
+                if (!key.isValid()) {
+                    close(channel);
+                    this.disconnected.add(channel.id());
+                }
+
+            } catch (Exception e) {
+                String desc = channel.socketDescription();
+                if (e instanceof IOException)
+                    log.debug("Connection with {} disconnected", desc, e);
+                else
+                    log.warn("Unexpected error from {}; closing connection", desc, e);
+                close(channel);
+                this.disconnected.add(channel.id());
+            }
+        }
+    }
+
+
+
+
+
