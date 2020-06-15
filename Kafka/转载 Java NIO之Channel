@@ -1,0 +1,136 @@
+https://juejin.im/post/5c0f15205188257afc713254
+作者；aTaller
+Java NIO之Channel
+今天来谈一谈NIO中的Channel，上一篇文章介绍了Buffer，有了Buffer还需要有一个通道来处理Buffer。它就是今天我们要学习的Channel。按照字面理解，它就是一个通道，可以从通道中读数据，也可以把数据写入到通道中。
+
+Channel可以分为几大类
+
+FileChannel（文件操作）
+SocketChannel（客户端TCP操作）
+ServerSocketChannel（服务端TCP操作）
+DatagramChannel（UDP操作）
+FileChannel
+FileChannel比较简单，主要用于文件操作。在使用FileChannel之前，需要先打开它。FileChannel是不能设置非阻塞的，我们可以通过RandomAccessFile来获取一个FileChannel的对象RandomAccessFile的getChannel()方法
+
+public final FileChannel getChannel() {
+    synchronized (this) {
+        if (channel == null) {
+            channel = FileChannelImpl.open(fd, path, true, rw, this);
+        }
+        return channel;
+    }
+}
+复制代码
+有了FileChannel就可以对文件进行读写了，我们分别看一下读写的代码。
+
+read
+首先把文件中的数据从channel中读出来，然后写入到我们分配的buffer里，然后再把buffer中的数据打印出来，代码如下：
+
+ByteBuffer buffer = ByteBuffer.allocate(100);
+// fileChannel中读出来，写到buffer中
+int read = fileChannel.read(buffer);
+buffer.flip();
+while (buffer.hasRemaining()) {
+	System.out.print((char) buffer.get());
+}
+复制代码
+write
+首先把要写入的内容放入buffer里，然后通过channel把buffer中的数据写入到文件中，当我们再查看文件的时候，就有写入之后的内容了，代码如下：
+
+String str = " is best";
+buffer.clear();
+buffer.put(str.getBytes());
+buffer.flip();
+// 从buffer中读出来，通过channel写入到文件中
+while (buffer.hasRemaining()) {
+	fileChannel.write(buffer);
+}
+复制代码
+close
+使用完channel后关闭channel。
+
+fileChannel.close();
+复制代码
+SocketChannel&ServerSocketChannel
+SocketChannel和ServerSocketChannel主要用于TCP连接。SocketChannel用于客户端，ServerSocketChannel用于服务端，客户端和服务端通信之前首先要建立连接。
+
+建立连接
+客户端
+客户端建立连接的过程，首先打开SocketChannel，然后连接到服务端，代码如下：
+
+SocketChannel socketChannel = SocketChannel.open();
+socketChannel.connect(new InetSocketAddress("127.0.0.1", 8000));
+复制代码
+服务端
+服务端首先打开ServerSocketChannel，然后绑定一个端口，代码如下：
+
+ServerSocketChannel serverSocketChannel = ServerSocketChannel.open();
+serverSocketChannel.socket().bind(new InetSocketAddress(8000));
+复制代码
+发送接收数据
+客户端
+连接建立成功之后，客户端就可以给服务端发送数据了，和FileChannel一样，首先要把数据放到buffer中，然后再写到channel里。
+
+//连接是否建立成功
+boolean isConnect = socketChannel.isConnected();
+
+ByteBuffer buffer = ByteBuffer.allocate(128);
+buffer.clear();
+buffer.put(("qiwoo").getBytes());
+
+buffer.flip();
+while (buffer.hasRemaining()) {
+	socketChannel.write(buffer);
+}
+
+复制代码
+服务端
+服务端ServerSocketChannel收到连接请求时，返回一个SocketChannel对象。然后就可以把数据从channel中读出来，然后写入到buffer里。
+
+SocketChannel socketChannel = serverSocketChannel.accept();
+
+ByteBuffer buffer = ByteBuffer.allocate(128);
+socketChannel.read(buffer);
+
+buffer.flip();
+
+while (buffer.hasRemaining()) {
+	System.out.println((char) buffer.get());
+}
+复制代码
+DatagramChannel
+DatagramChannel，使用UDP协议来进行传输。由于不需要建立连接，其实没有客户端服务端的概念，为了便于理解，我们定义其中一端为客户端，一端为服务端。
+
+Bind端口
+客户端
+打开DatagramChannel，然后绑定一个端口
+
+DatagramChannel datagramChannel = DatagramChannel.open();
+datagramChannel.socket().bind(new InetSocketAddress(8888));
+复制代码
+服务端
+打开DatagramChannel，然后绑定一个端口
+
+DatagramChannel datagramChannel = DatagramChannel.open();
+datagramChannel.socket().bind(new InetSocketAddress(8889));
+复制代码
+发送接收数据
+发送和接收数据也比较简单，代码如下：
+
+客户端
+ByteBuffer buffer = ByteBuffer.allocate(100);
+
+buffer.put("qiwoo".getBytes());
+buffer.flip();
+
+InetAddress address = InetAddress.getLocalHost();
+datagramChannel.send(buffer, new InetSocketAddress(address, 8889));
+复制代码
+服务端
+ByteBuffer buffer = ByteBuffer.allocate(100);
+buffer.clear();
+datagramChannel.receive(buffer);
+buffer.flip();
+while (buffer.hasRemaining()) {
+	System.out.print((char) buffer.get());
+}
