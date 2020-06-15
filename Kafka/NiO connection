@@ -1,0 +1,57 @@
+一，connection
+import java.nio.channels.SocketChannel;
+private final java.nio.channels.Selector nioSelector;
+
+public void connect(String id, InetSocketAddress address, int sendBufferSize, int receiveBufferSize) throws IOException {
+        if (this.channels.containsKey(id))
+            throw new IllegalStateException("There is already a connection for id " + id);
+        //获取到socketChannel
+        SocketChannel socketChannel = SocketChannel.open();
+        //设置为非阻塞式
+        socketChannel.configureBlocking(false);
+        //获取socket
+        Socket socket = socketChannel.socket();
+        socket.setKeepAlive(true);
+        /**
+         * 网络的默认值
+         * sendBuffer 128K，
+         * receiveBuffer 64K
+         */
+        if (sendBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
+            socket.setSendBufferSize(sendBufferSize);
+        if (receiveBufferSize != Selectable.USE_DEFAULT_BUFFER_SIZE)
+            socket.setReceiveBufferSize(receiveBufferSize);
+        //设置为false，代表开启Nagle的算法，将小的数据包收集起来，组合成大的数据包，然后发送出去，它认为小的数据包引起传输阻塞
+        //Kafka这里一定设置为true，因为有些数据包确实比较小，仍然需要发送
+        socket.setTcpNoDelay(true);
+        boolean connected;
+        try {
+            connected = socketChannel.connect(address);
+        } catch (UnresolvedAddressException e) {
+            socketChannel.close();
+            throw new IOException("Can't resolve address: " + address, e);
+        } catch (IOException e) {
+            socketChannel.close();
+            throw e;
+        }
+        /**
+         * 注册selectionKey， 添加OP_CONNECT事件
+         */
+        SelectionKey key = socketChannel.register(nioSelector, SelectionKey.OP_CONNECT);
+        /**
+         * 绑定KafkaChannel
+         */
+        KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize);
+        key.attach(channel);
+        /**
+         * 添加connection到 map 
+         */
+        this.channels.put(id, channel);
+
+        if (connected) {
+            // OP_CONNECT won't trigger for immediately connected channels
+            log.debug("Immediately connected to node {}", channel.id());
+            immediatelyConnectedKeys.add(key);
+            key.interestOps(0);
+        }
+    }
