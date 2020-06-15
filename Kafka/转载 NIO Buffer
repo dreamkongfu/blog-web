@@ -1,0 +1,171 @@
+转载 https://juejin.im/post/5c09cee751882551236eb996
+作者 aTaller
+Java NIO之Buffer
+什么是NIO
+在计算机世界，要想和计算机交互必须有输入(Input)和输出(Output)才能把我们的请求发送给计算机，计算机处理后给我们一个结果，可见输入输出很重要。同理在Java中也有处理输入输出的模块。包括IO和NIO，其中IO相关代码在java.io包下，我们今天要聊的NIO在java.nio包下。这两种IO有什么区别呢？
+
+传统IO基于字节流和字符流进行操作，而NIO基于Channel和Buffer进行操作。IO的流是阻塞的，当一个线程调用read() 或 write()时，该线程被阻塞。NIO的非阻塞模式，使一个线程从某通道发送请求读取数据，但是它仅能得到目前可用的数据，如果目前没有数据可用时，就什么都不会获取，该线程可以做其他的事情。
+
+我们今天要聊的Buffer是NIO中一个非常重要的类。Buffer是一个抽象类，它有以下子类：
+
+ByteBuffer
+CharBuffer
+DoubleBuffer
+FloatBuffer
+IntBuffer
+LongBuffer
+ShortBuffer
+我们就以ByteBuffer为例，详细了解一下Buffer的用法。
+
+初始化
+ByteBuffer同样是一个抽象类，我们通过allocate方法，最终创建的是HeapByteBuffer对象，关于ByteBuffer的使用，我们重点关注以下几个值的变化。
+
+capacity、position、limit、remaining
+
+分配10字节空间大小
+
+ByteBuffer buffer = ByteBuffer.allocate(10);
+复制代码
+allocate最终调用的方法是：
+
+public static ByteBuffer allocate(int capacity) {
+    if (capacity < 0)
+        throw new IllegalArgumentException();
+    return new HeapByteBuffer(capacity, capacity);
+}
+复制代码
+分配10个字节的空间之后，打印下我们关注的值的初始状态。
+
+System.out.format("positon:%d remaining:%d limit:%d capacity:%d\n", buffer.position(), buffer.remaining(), buffer.limit(), buffer.capacity());
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302ce1188?w=996&h=222&f=png&s=16474
+如图，分配好10字节空间后，值变化如下。
+
+positon:0 remaining:10 limit:10 capacity:10
+复制代码
+capacity表示容量的大小，为初始化是传入的值的大小，之后便不会变化。positon指向即将要操作的位置。在写状态下limit表示可写的空间的大小。remaining表示剩余可写空间的大小。
+
+put
+接下来我们调用Buffer的put方法，给我们创建的buffer放入一些东西。然后再打印下我们关注的值的变化，put的代码如下。
+
+String str = "ABC";
+byte[] bytes = str.getBytes();
+buffer.put(bytes);
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302af59d5?w=866&h=198&f=png&s=17069
+positon:3 remaining:7 limit:10 capacity:10
+复制代码
+打印结果如上，put完3个字节之后，position变成了3，remaining变成了7，其余两个值不变。
+
+flip
+put完之后，我们尝试从buffer中读一些数据，flip方法是将写模式变成读模式，它的实现如下。
+
+public final Buffer flip() {
+    limit = position;
+    position = 0;
+    mark = -1;
+    return this;
+}
+复制代码
+可以看到它把position的值变成了0，把position的值赋给了limit，表示从起始位置开始读，来看一下调用之后值的变化。
+
+buffer.flip();
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/16786503029b6210?w=958&h=198&f=png&s=17680
+positon:0 remaining:3 limit:3 capacity:10
+复制代码
+打印的结果如上，position变成了0，limit变成了原来position的值，也就是3。remaining也为3，capacity不变。
+
+get
+上面已经切换到读模式了，我们来读一个字节试试。
+
+Byte byte1 = buffer.get();
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302db3230?w=902&h=184&f=png&s=16744
+positon:1 remaining:2 limit:3 capacity:10
+复制代码
+读完一个字节之后打印结果如上。
+
+mark
+这里调用一下mark，mark之后不会有变化，只是会把position的值赋值给mark，我们看下它的实现代码。注意。此时mark的值变成了1，后边会用到这个值。
+
+public final Buffer mark() {
+    mark = position;
+    return this;
+}
+复制代码
+然后调用一下，看打印结果。
+
+buffer.mark();
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302db3230?w=902&h=184&f=png&s=16744
+positon:1 remaining:2 limit:3 capacity:10
+复制代码
+打印结果如上：几个值没有变化，符合预期。
+
+再次get
+接下来，我们再次调用一下get
+
+Byte byte2 = buffer.get();
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302bbf33f?w=858&h=184&f=png&s=16408
+positon:2 remaining:1 limit:3 capacity:10
+复制代码
+打印结果如上，参考第一次get，应该比较好理解。
+
+reset
+还记得前面，我们调用mark，把position的值赋值给mark。这次我们来调用reset，它的作用是把之前mark的值重新赋值给position。它的实现如下：
+
+public final Buffer reset() {
+    int m = mark;
+    if (m < 0)
+        throw new InvalidMarkException();
+    position = m;
+    return this;
+}
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302db3230?w=902&h=184&f=png&s=16744
+positon:1 remaining:2 limit:3 capacity:10
+复制代码
+打印结果如上，可以看到我们又回到了之前的状态，因此可以通过mark和reset反复读取buffer里的内容。
+
+第三次get
+由于我们之前调用了reset，现在第三次调一下get，看看是不是符合我们的预期。
+
+Byte byte3 = buffer.get();
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302bbf33f?w=858&h=184&f=png&s=16408
+positon:2 remaining:1 limit:3 capacity:10
+复制代码
+打印结果如上，符合预期。
+
+rewind
+在读了一些数据之后，如果我们想重新读怎么办？可以用rewind，它会把position的值置为0，同时mark值恢复为-1。
+
+public final Buffer rewind() {
+    position = 0;
+    mark = -1;
+    return this;
+}
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/16786503029b6210?w=958&h=198&f=png&s=17680
+positon:0 remaining:3 limit:3 capacity:10
+复制代码
+打印结果如上。
+
+clear
+最后我们来看一下clear的用法，clear会把position、limit、capacity恢复到初始状态，它的实现如下：
+
+public final Buffer clear() {
+    position = 0;
+    limit = capacity;
+    mark = -1;
+    return this;
+}   
+复制代码
+https://user-gold-cdn.xitu.io/2018/12/7/1678650302ce1188?w=996&h=222&f=png&s=16474
+positon:0 remaining:10 limit:10 capacity:10
+复制代码
+打印结果如上，可以看到，又回到了初始状态。
+
+总结
