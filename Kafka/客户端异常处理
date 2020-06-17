@@ -1,5 +1,33 @@
 1.接受到响应以后，响应消息流转流程
+selector on_Connect,ON_read,On_wirte 事件被触发，在 On_read事件处理拆包，粘包问题，将响应加入到stagedComplete中，然后转入completeReceives中
 2.客户端是如何处理响应消息
+  client.handleCompleteReceives() 遍历CompleteReceives
+      解析responseBody 到可以读懂的格式（解析完成的对象采用工厂模式的多读少写锁设计）
+      两个分支
+            a.元数据信息 处理元数据信息
+            b.其他信息，加入到ClientResponse队列
+  然后 遍历ClientResponse 调用回调函数的onCompletion()方法
 3.内存如何处理
+    消息处理完，accumulator释放内存
+    消息可以重试，重新加入缓存队列
 4.如果响应有异常，客户端如何处理
+    a 不可以重试的异常，直接返回给客户端，客户端回调函数处理
+    b 可以重试的异常，重新加入缓存队列里，重新等待被发送出去
 5.消息超时了，如何处理
+    1.没有发送出去
+    2.发送出去，长时间没有响应
+总结
+   1.Kafka网络设计，基于NIO写网络框架，一个客户端与多个Broker连接
+   2.拆包、粘包，里面代码很好
+   3.RecordAccumulator读写分离思想
+   4.内存池设计，JVM -》FULL GC
+     减少FULL GC 的发生
+   5.RecordAccumulator封装批次，分段加锁，粒度细，提升性能 Hadoop-> 锁粒度粗
+   6.Kafka异常体系清晰
+     a 定义很多异常
+     b 核心代码捕捉异常
+     c 底层代码直接抛异常
+   7.发送数据方式
+     同步的：性能差一些
+     异步方式：性能好一些
+6.服务端的网络架构设计
