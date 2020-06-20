@@ -1,0 +1,19 @@
+Hive 有四个核心组件  Driver->Compiler->Optimizer->Executor
+Hive 依赖HDFS存储
+     计算转换为MapReduce
+Hive 支持 等值，and, Create,Read
+     不支持 非等值，or,Update/delete
+11步骤
+1.从语法树生成 解析树
+2.从解析树生成 operator 树
+
+3.推导结果集模式， CBO优化
+4.为优化器和物理编译器解析上下文
+5.注意视图创建
+6.生成表访问统计信息
+7.执行逻辑优化
+8.根据需要生成列访问统计信息，等待优化期间进行列修剪
+
+9.优化物理操作并转换为目标执行引擎
+10.将访问的列放入readEntity
+11.如果需要检查，不会超过分区扫描限制
