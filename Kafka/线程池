@@ -1,0 +1,21 @@
+
+ThreadPoolExecutor
+params: coreThreadNums, MaxThreadNums,keepLiveTime,timeUnit,Queue,ThreadFactory,Handerler(refuse policy)
+status: isRunning,shutdown(refuse new threads, execute blockqueue threads),stop(refuse new threads, throw blockqueue threads),tidying(tasks are done,pool is empty),terminated
+function execute:
+                 1.|coreThreadNums,addWorker|<queueSize,queue.offer(runnable)|<MaxThreadNum, addWorker|refuse policy
+                 2.addWorker(Runnable,core)-> status!=shutdown,!=stop | core?<coreThreadNums:MaxThreadNum
+                      new Worker(Runable) -> status!=shutdown,!=stop 
+                                -> lock-> workers.add(worker)->unlock
+                                 worker.thread.run() -> runWorker(this)->
+                                 ->while(task=getTask()!=null) task.run
+
+Worker extends AbstractQueuedSynchronizer
+params: runnable
+        thread = threadFactory.newThread(this);
+        volatile long completedTasks;
+        tryAcquire:{compareAndSetState(0, 1);setExclusiveOwnerThread(Thread.currentThread());}
+        tryRelease:{setExclusiveOwnerThread(null);setState(0);}
+        isHeldExclusively:{getState()!=0}
+        
+参考： 图解线程池原理  https://juejin.im/post/5d5c06ba5188252d4375755b
