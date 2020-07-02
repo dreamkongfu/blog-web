@@ -1,0 +1,131 @@
+1.RPC实现
+网络框架：公共框架通信
+  5种网络框架： 同步阻塞BIO，NIO，AIO（真正的异步编程）
+  1.同步阻塞IO：
+  2.同步非阻塞IO
+  3.IO多路复用
+  4.信号驱动IO
+  5.异步IO
+ 一.同步阻塞IO
+             客户端和服务线程是1:1 ，无法高并发，
+             sever.accept() 有用户请求才阻塞
+             in.readLine 用户线程会被阻塞，直到数据到达线程时阻塞才解除
+             class severSocket--------------------------------
+             ServerSocket ss = new ServerSocket();
+             ss.bind(new InetSocketAddress('localhost',PORT));
+             try{
+                Socket s = null;
+                while(true){
+                   s = ss.accept();//阻塞，等待客户端发送连接请求
+                   new Thread(new ServerTaskThread(s)).start();
+                }
+             }catch(Exception e){
+                e.printStackTrace();
+             }finally{
+                if(ss!=null){
+                   ss.close();
+                }
+             }
+             
+             class ServerTaskThread--------------------------
+             run(){
+                 try{  inputStream  = s.getInputStream();
+                       outputStream = s.getOutputStream();
+                       BufferedReader in = new BufferedReader(new InputStreamReader(inputStream));
+                       PrintWriter out = new PrintWriter(outputStream,autoFlush:true);
+                       while(true){
+                          //阻塞，读取客户端发送的请求的数据,可以优化，在完成连接的时候，把线程调度给其他的应用程序
+                          string readLine = in.readLine();
+                          if(readLine == null){
+                               break;
+                          }
+                          if(readLine.equals("getHow")){
+                              string now = getNow();
+                              out.println(now);
+                          }else if(readLine.equals("getServerName")){
+
+                              out.println("servername");
+                          }
+                       }
+                 }
+              }
+  二 NIO ， 多路服用selector ，判断什么时候发送过来的数据有没有准备好。
+            server class---------------------------------------------------------------------------------------------------
+            ServerSocketChannel serverSocketChannel =  ServerSocketChannel.open();
+            serverSocketChannel.socket().bind(new InetSocketAddress(9000));
+            serverSocketChannel.configureBlocking(false);
+            Selector selector = Selector.open();
+            serverSocketChannel.register(selector,SelectionKey.OP_CONNECT)
+            
+            while(true){  //轮询 
+                 int selected = selector.select();
+                 if(selected>0){
+                     Iterator<SelectionKey> iterator = selector.selectedKeys().iterator();
+                     while(iterator.next()){
+                          SelectionKey selectionKey = iterator.next();
+                          iterator.remove();
+                          if(selectionKey.isAcceptable){
+                             SocketChannel socketChannel = serverSocketChannel.accept();
+                          }else if(selectionKey.isReadable){
+                             SocketChannel socketChannel = (SocketChannel)selectionKey.channel();
+                             ByteBuffer buffer = ByteBuffer.allocate(128);
+                             socketChannel.read(buffer);
+                          
+                          }else if(selectionKey.isWritable){
+                             SocketChannel socketChannel = (SocketChannel)selectionKey.channel();
+                             ByteBuffer buffer = ByteBuffer.wrap(content.getBytes());
+                             socketChannel.write(buffer);
+                          }
+                          
+                     
+                     
+                     
+                     
+                     }
+                 }
+                
+            }
+            client class --------------------------------------------------------------------------------------------------------
+            SocketChannel socketChannel = SocketChannel.open();
+            socketChannel.configureBlocking(false);
+            Selector selector = Selector.open();
+            socketChannel.register(selector,SelectionKey.OP_CONNECT);
+            socketChannel.connect("localHost",port);
+            
+            while(true){
+                  int isSelected = selector.selected;
+                  if(isSelected>0){
+                     Iterator<SelectionKey>  iterator = selector.selectionKeys().iterator();
+                     while(iterator.hasNext()){
+                            SelectionKey selectionKey = iterator.next();
+                            if(selectionkey.isConnectable){
+                               SocketChannel socketChannel = (SocketChannel)selectionKey.channel();
+                               socketChannel.finishConnect();
+                            }else if(selectionKey.isReadable){
+                               SocketChannel socketChannel = (SocketChannel)selectionKey.channel();
+                               ByteBuffer buffer = ByteBuffer.allocate(128);
+                               socketChannel.read(buffer);
+                            
+                            }else if(selectionKey.isWritable){
+                               SocketChannel socketChannel = (SocketChannel)selectionKey.channel();
+                               ByteBuffer buffer = ByteBuffer.wrap(content.getBytes());
+                               socketChannel.write(buffer);
+                               
+                            }
+                          
+                     }
+                     
+                  }
+                  
+                  iterator.remove();
+            }
+  
+        
+  
+  
+  
+  
+  
+  
+  
+  
