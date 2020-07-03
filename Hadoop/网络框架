@@ -119,9 +119,115 @@
                   
                   iterator.remove();
             }
+  三、NIO 服务端多selector，response队列
+  //用阻塞队列，如果队列满了，就阻塞等待，当队列有新的空间，再加入requestChannel。
+  ArrayBlockingQueue newConnections = new ArrayBlockingQueue<SocketChannel>[connectionQueueSize]
+  LinkedBlockingQueue responseQueue = new LinkedBlockingQueue<Response>()
+  run(){
+     serverChannel.register(nioSelector,SelectionKey.OP_ACCEPT)
+     int currentIndex = 0;
+     try{
+       while(isRunning){
+          try{
+             int isSelected = nioSelector.select()
+             if(isSelected>0){
+                //遍历所有的keys
+                Interator<SelectionKey> iterator = nioSelector.selectionKeys().iterator();
+                while(iterator.hasNext&&isRunning){
+                     try{
+                        SelectionKey selectionKey = iterator.next();
+                        iterator.remove();
+                        if(selectionKey.isAcceptable){
+                             ServerSocketChannel serverChannel = (ServerSocketChannel)key.channel();
+                             SocketChannel socketChannel = serverChannel.accept();
+                             socketChannel.configureBlocking(false)
+                             socketChannel.socket().setTcpNoDelay(true)
+                             socketChannel.socket().setKeepAlive(true)
+                             //轮流分配给3个selector
+                             int retries = 3;
+                             
+                             do{
+                               retries -=1;
+                               Processor processor = null;
+                               synchronized(currentIndex){
+                                      int index = currentIndex%processors.size;
+                                      processor = processors[index];
+                                      currentIndex ++;
+                               }
+                              
+                             }while(!assignNewProcessor(processor,socketChannel,retries==0))
+                        }
+                        
+                     }
+                }
+             }
+          }
+        }
+     }
+  }
+  队列满了阻塞，有新的位置，加入。
+  acceptConnections(SocketChannel socketChannel){
+      boolean accepted = false;
+      if(newConnections.offer(socketChannel)){
+         accepted = true;
+      }else if(newConnections.put(socketChannel)){
+          //阻塞
+          accepted = false;
+      }
+      return accepted;
+  }
+  //分配新的处理线程
+  assignNewProcessor(Processor processor,SocketChannel socketChannel,Boolean maybeBlock){
+          return  processor.accept(SocketChannel socketChannel,Boolean maybeBlock);
   
+  
+  
+  }
+  
+Processor class-----------------------------------------------------------------------------------------------------  
+  run(){
+    try{
+       while(isRunning){
+           //注册OP_READ事件
+           configureNewConnections()
+           //处理response队列，并且注册OP_WRITE事件
+           processNewResponses()
+           //真正往selector写数据
+           poll()
+           processCompletedReceives()
+           processCompletedSends()
+           processDisconnected()
+       }
+    }
+  }
+  accept(SocketChannel socketChannel,Boolean mayBlock){
+      boolean accepted = false;
+      if(newConnections.offer(socketChannel))
+          accepted= true;
+      else if (mayBlock){
+         //如果队列满了，阻塞队列
+         newConnections.put(socketChannel);
+         accepted= true;
+      }else 
+          accepted = false;
+      if(accepted)
+          wakeup();
+      return accepted;
+  }
         
+  configureNewConnections(){
+     int connectionsProcessed = 0;
+     while(connectionsProcessed<newConnections.size&&!newConnections.isEmpty()){
+        SocketChannel channel= newConnections.poll();
+        try{
+            selector.register(channel);
+        }catch{
+          close(listenername,channel)
+        }
+        connectionsProcessed++;
+     }
   
+  }
   
   
   
