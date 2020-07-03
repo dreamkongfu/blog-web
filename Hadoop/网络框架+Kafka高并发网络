@@ -166,7 +166,7 @@
      }
   }
   队列满了阻塞，有新的位置，加入。
-  acceptConnections(SocketChannel socketChannel){
+  accept(SocketChannel socketChannel){
       boolean accepted = false;
       if(newConnections.offer(socketChannel)){
          accepted = true;
@@ -185,15 +185,17 @@
   }
   
 Processor class-----------------------------------------------------------------------------------------------------  
+  selector
   run(){
     try{
        while(isRunning){
-           //注册OP_READ事件
+           //从connections队列取出连接，注册OP_READ事件
            configureNewConnections()
-           //处理response队列，并且注册OP_WRITE事件
+           //处理在SocketServer里的response队列，并且注册OP_WRITE事件
            processNewResponses()
-           //真正往selector写数据
+           //真正往selector写数据 ， 读取请求添加到CompletedReceives里，调用selector发送response
            poll()
+           //加入到channel里的request队列
            processCompletedReceives()
            processCompletedSends()
            processDisconnected()
@@ -228,8 +230,53 @@ Processor class-----------------------------------------------------------------
      }
   
   }
+  多个线程处理请求，并且将请求处理完后，写入磁盘，并放入response队列
+  numIoThreads
+  KafkaServer-----------------------------------------------------------------------------------
+  startUp(){
+     //创建KafkaRequestHandlerPool，把socketServer的dataPlaneRequestChannel传给KafkaRequestHandlerPool
+     dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
+          config.numIoThreads, s"${SocketServer.DataPlaneMetricPrefix}RequestHandlerAvgIdlePercent", SocketServer.DataPlaneThreadPrefix)
+
+  }
+  KafkaRequestHandlerPool----------------------------------------------------------------------
+  for(int i = 0;i< numThreads;i++){
+     createHandler(i)
+  }
+  createhandler(id){
+      runnables.add(new KafkaRequestHandler(requestChannel));
+      KafkaThread.daemon(runnables[id],name+id).start();
+  }
+  KafkaRequestHandler--------------------------------------------------------------------------
+  run(){
+     request = requestChannel.receiveRequest() // requestQueue.poll();
+      while(!stopped){
+            try {
+                apis.handle(request);
+            } catch{
+            }finally{
+               request.releaseBuffer();
+            }
+      
+      
+      }
+  }
+  APIs-----------------------------------------------------------------------------------------
+  
+  def handle(Request request){
+        try{
+           switch(request.header.apiKey){
+                case ApiKeys.PRODUECE => handleProduceRequest(request) //处理生产者的请求，加入请求队列，并写入磁盘
+                
+           
+           
+           }
+        }catch(Exception e){
+        }
   
   
+  
+  }
   
   
   
