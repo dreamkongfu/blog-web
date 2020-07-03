@@ -1,0 +1,133 @@
+猜想：多线程环境下的类，方法，方法体内加锁，尤其是锁外有判断条件的。    结论 锁内部或需要添加判断条件     验证的例子有，单例模式，生产者判断是否生产满了
+猜想二： 生产者需要判断是否生产满了，消费者需要判断是否生产为空
+猜想三： 生产后唤醒消费者的阻塞线程，消费者消费后唤醒生产者的阻塞线程。在任意角色下，根据生产的条件，在一个方法里，可以叫醒生产者和消费者的阻塞线程
+猜想四  不满足一定条件阻塞,直到满足条件才进行下一步。 结论 使用while+条件，await() ;例子：  while（c == capacity）{ condition.await();}
+问题： 为什么会有线程不安全的叫醒消费者，或者生产者
+参考： java阻塞队列BlockingQueue
+https://juejin.im/entry/5b52ed7f6fb9a04fe11ae0d0
+ToDo： PriorityBlockingQueue 的最小堆排序
+
+class LinkedBlockingQueue extends abstractBlockingQueue{
+       Condition notFull = putLock.Condition();
+       AtomicInteger count = new AtomicInteger();
+        offer(E e){
+          try{
+               int c =-1 ;
+               if(count.get()==capacity){
+                  return false;
+               }
+               putLock.lock();
+               if(count.get()<capacity){ //经常会被忘记，lock之前有条件判断的，lock之后也要判断一次
+               
+                     enqueue(e);
+                     c = count.getAndIncrement();
+                     if(c+1 < capacity){
+
+                       notFull.signal();
+
+                     }
+               }
+               
+               
+           }catch(Exception e){
+           }finally{
+               putLock.unlock();
+           }
+           if(c==0)
+              notifyNotEmpty(); 
+           
+           
+           return c>=0;
+          
+        }
+        put(){
+           
+           try{
+              lock.lock();
+              int c = count.get();
+              while(count.get()==capacity){
+                  NotFull.await();
+               }
+              if(c < capacity){
+                  enqueue(e);
+                  c.getAndIncrement();
+                  
+              }
+              if(c+1 <capacity){
+                  NotFull.signal();
+              }
+              
+           }catch(Exception e){
+           
+            
+           }finnaly{
+              lock.unlock();
+           }
+           if(c==0){
+              NotifyNotempty();
+           }
+          
+        
+        }
+        poll(){
+             AtomicInteger count = this.count;
+             if(count.get()<0){
+              return null;
+             }
+             int c = -1;
+             try{
+                 takeLock.lock();
+                
+                 if(count.get()>=0){
+                    x = dequeue();
+                    c = count.getAndDecrement(); // 返回的是没有减之前的值
+                 }
+                 if(c>1){
+                   notEmpty.signal();
+                 }
+                 
+             }catch(Exception e){
+             }finnally{
+                 takeLock.unlock();
+             }
+             if(c==capacity){  // 生产者的阻塞条件
+                signalNotFull();
+             }
+             return x;
+        }
+        take(){
+           int c = -1;
+           E x = null;
+           try{
+              putlock.lock();
+              while(count.get()==0){
+                 notEmpty.await();
+              }
+              x = dequeue();
+              c = count.getAndDecrement();
+              if(c>1)
+                 NotEmpty.notify();
+              
+            }finally{
+              putlock.unlock();
+            }
+            if(c==capacity)
+                NotifyNotfull();
+            return x;
+            
+        }
+        add(E e){
+          if(offer(e){
+             return true;
+          }else{
+          }
+        }
+        remove(){
+          x = poll();
+          if(x!=null){
+            return x;
+          }else{
+          }
+        }
+
+}
