@@ -1,0 +1,117 @@
+
+参考博客  MapReduce编程案例系列篇
+https://blog.csdn.net/zhongqi2513/article/details/78321664
+先做抽象
+一、第一阶段
+框架是一个半成品，只写公共逻辑部分，业务逻辑留给用户
+a.先关注数据源的问题；Hbase，MySQL，HDFS
+b.第一个阶段的数据处理问题：一个任务变成3个小任务，并行执行3个小任务
+   逻辑划分，HDFS 文件总大小/每个数据块的大小 = task的个数
+           MySQL  task个数，每个task对应的mysql的表的数据
+   inputFormat，规划task规则，传输数据 组件:TextInputFormat , LineRecordReader
+   Mapper：提取核心信息，形成Key—Value   map(key.value.context){ context.write(outkey.outvalue}
+   shuffel阶段，数据分发规则，Partition 。将不同的分组数据发给不同的节点，同一个分组的数据发送给相同的节点 ， 用户来指定
+                                      默认组件是HashPartitioner：hash 散列，可以设置，可以不设置
+               sorter:排序器，将小任务的数据先排序，然后在第二阶段归并排序
+                             Comparable 排序，默认实现排序规则；字典排序，如果没有reducer ，只能对key排序。如果有，一定会排序
+               combiner：聚合器 局部合并的组件，可有可无，任何情况下，可以设置，可以不用设置，减少shuffle阶段的数量，减轻reducer的工作压力
+c.中间阶段
+二、第二个阶段
+汇总处理：3个小任务的执行结果收集起来，然后执行汇总，reduceTask， 把一组key-value合并成另一组key-value
+         reduce(key.values.context){context.write(outkey.outvalue)}
+排序，不排序只能全文件扫描
+
+outputFormat，输出数据
+关注得到最终结果，输出
+
+其他核心组件
+1.GroupComparator 分组组件
+2.Writable 接口，序列化组件
+3.WritableComparable 即序列化，指定排序规则
+//使用多线程实现
+Driver class--------------------------------------------------------------------------------------------
+                Conext context = new Context();
+                job.setMapInputFormat(new MapInputFormat());
+                //负责第一个阶段
+                job.setMapper(new Mapper());
+                //负责给第一个阶段输出结果
+                job.setMapOutputFormat(new MapOutputFormat());
+                //指定分区规则
+                job.setPartitioner(new Partitioner(2));
+                //指定排序规则
+                job.setSort(new Sort());
+                //负责第二阶段输入数据
+                job.setReducerInputFormat(new ReducerInputFormat());
+                //负责第二阶段
+                job.setReducer(new Reducer());
+                //负责第二阶段输出结果
+                job.setReducerOutputFormat(new ReducerOutputFormat());
+                //指定应用程序的输入输出
+                job.setInputPath("");
+                job.setOutputPath("");
+
+Mapper class-----------------------------------------------------------------------------------------------------------
+                run(Context context){
+                    setup(context);
+                    try{
+                        while(context.nextKeyValue()){
+                             map(context.getCurrentKey(),context.getCurrentValue(),context);
+                        }
+                    }finnally{
+                         cleanup(context);
+                    }
+
+
+                }
+                //Key, value 形式
+                map(Object currentkey,Object currentValue,Context context){
+                      //业务逻辑
+                      String value = (String)currentValue;
+                      String[] words = value.split("");
+                      for(String word:words){
+                         context.write(word,1);
+                      }
+                }
+Job class----------------------------------------------------------------------------------------
+runJob(Context context){
+          //逻辑切
+          Spliter spliter = new Spliter();
+          //InputSplit： 每个逻辑切片，包装了数据块，最终会启动一个任务
+          List<InputSplit> splits = spliter.getSplits(context,context.getInputDir());
+          //启动第一阶段计算
+          runMapper(context,splits);
+
+          //启动shuffle阶段
+          runShuffle(context);
+          //启动第二阶段计算
+          runReducer(context)
+          //执行完成
+
+}
+runMapper(Context context,List<InputSplit> splits){
+for(InputSplit split:splits){
+      MapTaskRunner taskRunner = new MapTaskRunner(context,split);
+      Future<Boolean> future = executor.submit(taskRunner);//线程池
+}
+//任务提交完成
+//检测是否完成
+checkMapperComplete(executor);
+
+
+
+
+}
+
+
+
+                
+
+
+
+
+
+
+
+
+
+
