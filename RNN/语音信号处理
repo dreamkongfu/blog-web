@@ -1,0 +1,65 @@
+信号处理与傅立叶变换
+Spectrogram
+It is quite difficult to figure out from this "raw" representation of audio whether the word "activate" was said.
+In order to help your sequence model more easily learn to detect trigger words, we will compute a spectrogram of the audio.
+The spectrogram tells us how much different frequencies are present in an audio clip at any moment in time.
+If you've ever taken an advanced class on signal processing or on Fourier transforms:
+A spectrogram is computed by sliding a window over the raw audio signal, and calculating the most active frequencies in each window using a Fourier transform.
+If you don't understand the previous sentence, don't worry about it.
+
+#使用工具类，
+x = graph_spectrogram("audio_examples/example_train.wav")
+
+ # Step 4: Superpose audio segment and background ， segment添加overlay音效
+    new_background = background.overlay(audio_clip, position = segment_time[0])
+转载 util工具类
+import matplotlib.pyplot as plt
+from scipy.io import wavfile  ##读取wav， data,rate
+import os
+from pydub import AudioSegment ##读取raw
+
+# Calculate and plot spectrogram for a wav audio file
+def graph_spectrogram(wav_file):
+    rate, data = get_wav_info(wav_file)
+    nfft = 200 # Length of each window segment
+    fs = 8000 # Sampling frequencies
+    noverlap = 120 # Overlap between windows
+    nchannels = data.ndim
+    if nchannels == 1:
+        pxx, freqs, bins, im = plt.specgram(data, nfft, fs, noverlap = noverlap)
+    elif nchannels == 2:
+        pxx, freqs, bins, im = plt.specgram(data[:,0], nfft, fs, noverlap = noverlap)
+    return pxx
+
+# Load a wav file
+def get_wav_info(wav_file):
+    rate, data = wavfile.read(wav_file)
+    return rate, data
+
+# Used to standardize volume of audio clip
+def match_target_amplitude(sound, target_dBFS):
+    change_in_dBFS = target_dBFS - sound.dBFS
+    return sound.apply_gain(change_in_dBFS)
+
+# Load raw audio files for speech synthesis
+def load_raw_audio():
+    activates = []
+    backgrounds = []
+    negatives = []
+    for filename in os.listdir("./raw_data/activates"):
+        if filename.endswith("wav"):
+            activate = AudioSegment.from_wav("./raw_data/activates/"+filename)
+            activates.append(activate)
+    for filename in os.listdir("./raw_data/backgrounds"):
+        if filename.endswith("wav"):
+            background = AudioSegment.from_wav("./raw_data/backgrounds/"+filename)
+            backgrounds.append(background)
+    for filename in os.listdir("./raw_data/negatives"):
+        if filename.endswith("wav"):
+            negative = AudioSegment.from_wav("./raw_data/negatives/"+filename)
+            negatives.append(negative)
+    return activates, negatives, backgrounds
+    
+    
+    
+    
