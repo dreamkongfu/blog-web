@@ -1,0 +1,278 @@
+网址 https://iclouding.github.io/2017/05/22/Hadoop--MapReduce%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/
+
+Hadoop–MapReduce源码分析（转）
+[TOC]
+
+注：本文转自http://blog.xiaoxiaomo.com/2016/07/08/Hadoop-MapReduce源码分析/，支持原创
+
+MapReduce运行机制
+下面从两个角度来讲解MapReduce的运行机制：
+各个角色实体;
+运行的时间先后顺序。
+img
+
+各个角色实体
+程序运行时过程设计到的一个角色实体
+1.1. Client：编写mapreduce程序，配置作业，提交作业的客户端 ；
+1.2. ResourceManager：集群中的资源分配管理 ；
+1.3. NodeManager：启动和监管各自节点上的计算资源 ；
+1.4. ApplicationMaster：每个程序对应一个AM，负责程序的任务调度，本身也是运行在NM的Container中 ；
+1.5. HDFS：分布式文件系统，保存作业的数据、配置信息等等。
+客户端提交Job
+2.1. 客户端编写好Job后，调用Job实例的Submit()或者waitForCompletion()方法提交作业；
+2.2. 客户端向ResourceManager请求分配一个Application ID，客户端会对程序的输出、输入路径进行检查，如果没有问题，进行作业输入分片的计算。
+Job提交到ResourceManager
+3.1. 将作业运行所需要的资源拷贝到HDFS中（jar包、配置文件和计算出来的输入分片信息等）；
+3.2. 调用ResourceManager的submitApplication方法将作业提交到ResourceManager。
+给作业分配ApplicationMaster
+4.1. ResourceManager收到submitApplication方法的调用之后会命令一个NodeManager启动一个Container ；
+4.2. 在该NodeManager的Container上启动管理该作业的ApplicationMaster进程。
+ApplicationMaster初始化作业
+5.1. ApplicationMaster对作业进行初始化操作；
+5.2. ApplicationMaster从HDFS中获得输入分片信息(map、reduce任务数)
+任务分配
+6.1. ApplicationMaster为其每个map和reduce任务向RM请求计算资源；
+6.2. map任务优先于reduce任，map数据优先考虑本地化的数据。
+任务执行，在 Container 上启动任务（通过YarnChild进程来运行），执行map/reduce任务。
+时间先后顺序
+输入分片（input split）
+每个输入分片会让一个map任务来处理，默认情况下，以HDFS的一个块的大小（默认为128M，可以设置）为一个分片。map输出的结果会暂且放在一个环形内存缓冲区中（默认mapreduce.task.io.sort.mb=100M）,当该缓冲区快要溢出时（默认mapreduce.map.sort.spill.percent=0.8）,会在本地文件系统中创建一个溢出文件，将该缓冲区中的数据写入这个文件；
+map阶段：由我们自己编写，最后调用 context.write(…)；
+partition分区阶段
+3.1. 在map中调用 context.write(k2,v2)方法输出，该方法会立刻调用 Partitioner类对数据进行分区，一个分区对应一个 reduce task。
+3.2. 默认的分区实现类是 HashPartitioner ，根据k2的哈希值 % numReduceTasks，可能出现“数据倾斜”现象。
+3.3. 可以自定义 partition ，调用 job.setPartitioner(…)自己定义分区函数。
+combiner合并阶段：将属于同一个reduce处理的输出结果进行合并操作
+4.1. 是可选的；
+4.2. 目的有三个：1.减少Key-Value对；2.减少网络传输；3.减少Reduce的处理。
+shuffle阶段：即Map和Reduce中间的这个过程
+5.1. 首先 map 在做输出时候会在内存里开启一个环形内存缓冲区，专门用来做输出，同时map还会启动一个守护线程；
+5.2. 如缓冲区的内存达到了阈值的80%，守护线程就会把内容写到磁盘上，这个过程叫spill，另外的20%内存可以继续写入要写进磁盘的数据；
+5.3. 写入磁盘和写入内存操作是互不干扰的，如果缓存区被撑满了，那么map就会阻塞写入内存的操作，让写入磁盘操作完成后再继续执行写入内存操作;
+5.4. 写入磁盘时会有个排序操作，如果定义了combiner函数，那么排序前还会执行combiner操作；
+5.5. 每次spill操作也就是写入磁盘操作时候就会写一个溢出文件，也就是说在做map输出有几次spill就会产生多少个溢出文件，等map输出全部做完后，map会合并这些输出文件，这个过程里还会有一个Partitioner操作（如上）
+5.6. 最后 reduce 就是合并map输出文件，Partitioner会找到对应的map输出文件，然后进行复制操作，复制操作时reduce会开启几个复制线程，这些线程默认个数是5个（可修改），这个复制过程和map写入磁盘过程类似，也有阈值和内存大小，阈值一样可以在配置文件里配置，而内存大小是直接使用reduce的tasktracker的内存大小，复制时候reduce还会进行排序操作和合并文件操作，这些操作完了就会进行reduce计算了。
+reduce阶段：由我们自己编写，最终结果存储在hdfs上的。
+MapReduce过程概述：
+Job提交任务，会做初始化配置文件、检查Output Path、请求RM获取JobId、复制资源文件到HDFS等操作然后提交job作业；
+RM接收到作业后会初始化Job对象，然后启动一个NM会从HDFS获取资源文件分配一个Container,在Container中启动一个AM，在过程中会把文件分割为多个输入分片；
+每个输入分片会让一个map任务来处理，输出多个键值对，输出的结果会暂且放在一个环形内存缓冲区中；
+紧接着就是分区，目的是把k2分配到不同的reduce task；
+map输出时可能会有很多的溢出文件，要将这些文件合并。合并的过程中会不断地进行排序和combia操作，最后合并成了一个已分区且已排序的文件。
+reduce阶段，接收到不同map任务传来的数据，如果接收数据大超过阈值就会溢出写入磁盘，溢出文件增多合并成大的有序的文件（反复地执行排序，合并操作）
+MapReduce会让写入磁盘的数据尽可能地少，并且最后一次合并的结果并没有写入磁盘，而是直接输入到reduce函数。
+MapReduce的Shuffle和排序
+Job提交作业
+对Job提交作业画了一个简单的图
+
+对Job提交作业画了一个简单的图
+
+Job开始提交任务
+
+一个简单的MapReduce开始提交任务
+
+一个简单的MapReduce开始提交任务
+
+接下来我们进入Job类看一看waitForCompletion方法，waitForCompletion方法中主要调用了两个方法：submit()和monitorAndPrintJob()，如下图所示：
+Job类的waitForCompletion()方法
+Job类的waitForCompletion()方法
+submit方法
+在waitForCompletion中，我们先看一看submit方法，该方法主要提交Job，调用JobSubmitter.submitJobInternal()方法完成
+waitForCompletion的submit()方法
+waitForCompletion的submit()方法
+submitJobInternal
+submitJobInternal()，主要有以下几个主要功能：
+1、会检查job的Output Path；
+2、设置Job ID
+3、设置Job 命令选项
+4、分割、切片并创建splits文件
+5、复制配置文件到HDFS
+6、正在的提交Job
+
+具体代码如下：
+
+img
+img
+img
+submitJobInternal()方法
+submitJobInternal()方法
+
+checkSpecs() 方法检查output文件；
+setJobID() 设置Job ID；
+writeSplits() 写Splits文件；
+cleanUpTokenReferral() 清除jobtoken referrals；
+writeConf() 写入job相关的配置文件到HDFS；
+submitClient.submitJob() 做真正的提交Job。
+writeSplits
+在看submitClient.submitJob()之前我们先看一看分割、切片writeSplits() 方法
+
+writeSplits() 方法
+
+writeSplits() 方法
+
+writeSplits下面调用了writeNewSplits()和writeOldSplits()方法，我们只看一个writeNewSplits方法：
+通过InputFormat的getSplits()方法获取一个List
+排序后再创建SplitFiles
+
+writeNewSplits()方法
+
+writeNewSplits()方法
+
+InputFormat
+InputFormat抽象类仅有两个抽象方法：
+
+List getSplits()， 获取由输入文件计算出输入分片(InputSplit)，解决数据或文件分割成片问题。
+RecordReader createRecordReader()，创建RecordReader，从InputSplit中读取数据，解决读取分片中数据问题
+具体完成以下功能：
+3.1. 验证作业输入的正确性
+3.2. 将输入文件切割成逻辑分片(InputSplit)，一个InputSplit将会被分配给一个独立的MapTask
+3.3. 提供RecordReader实现，读取InputSplit中的“K-V对”供Mapper使用
+一、getSplits()
+一.1、getSplits()是InputFormat接口的抽象方法，所以我们在具体InputFormat的实现类下面的实现方法就行了，如下图：
+具体**InputFormat**的实现类
+
+具体InputFormat的实现类
+
+一.2、下面我们来看看FileInputFormat在这里，记得弄清楚Splits和Block的关系
+img
+FileInputFormat的getSplits()方法
+FileInputFormat的getSplits()方法
+一个InputSplit对应一个Map Task；
+默认文件可分割(true)，这样一个block（128MB）就对应一个InputSplit(通过computeSplitSize(…)方法)；
+通过分析while循环，得知一个InputSplit对应一个block有利于map计算的数据本地化；
+如果文件不允许分隔，整个文件作为一个InputSplit，这样一个InputSplit就可能对应多个block。
+注意：getSplits完成后返回一个List InputSplit，然后对它进行排序sort和创建Split文件createSplitFiles具体的排序算法这些博主就不一一贴图了，比较好理解，大家可以自己去看看。
+提交JOB到RM
+下面看一看ClientProtocol 提交Job submitJob的实现类YARNRunner，主要是提交Job到ResourceManager
+submitJob的实现类YARNRunner
+submitJob的实现类YARNRunner
+
+monitorAndPrintJob
+上面submit方法已经提交job了，该方法就是做一些监控，并打印日志信息
+img
+monitorAndPrintJob()方法
+monitorAndPrintJob()方法
+读取InputSplit中的数据
+读取InputSplit中的数据，转成k1,v1 ，由LineRecordReader完成，存在于TextInputFormat。
+TextInputFormat类
+TextInputFormat类
+TextInputFormat方法 相当于一个解释器，有很多的解释器，TextInputFormat为默认的文本解释器；
+TextInputFormat方法 重写了isSplitable方法和 RecordReader 方法（）相当于定义了自己的规则；
+getRecordReader方法 最后返回了一个LineRecordReader的实例。
+注：我们的job程序默认使用的就是TextInputFormat，该类的泛型已经明确指定了，所以在job配置的时候，不需要指定k1,v1的类型。
+下面我们来一起看一看LineRecordReader类：
+LineRecordReader类
+LineRecordReader类
+先看看父类RecordReader 因为比较清晰明了，这几个方法很重要，如下图所示：
+LineRecordReader的父类RecordReader
+LineRecordReader的父类RecordReader
+返回LineRecordReader，看一看大致有哪些具体实现
+返回LineRecordReader
+返回LineRecordReader
+看一看几个重要的方法，如下图源码每次调用nextKeyValue()时，value表示当前行的内容，key表示已经读取后的位置具体实现：
+LineRecordReader的nextKeyValue具体的实现
+LineRecordReader的nextKeyValue具体的实现
+在MR框架中，有很多InputFormat和FileInputFormat的实现类。比如SequenceFileInputFormat，NLineInputFormat、DBInputFormat等。DBInputFormat表示从SQL表中读取数据，可以看出我们不仅仅是从HDFS中取数据作为输入还可以从数据库中读取数据，来一个简单的截图：
+InputFormat的具体实现DBInputFormat
+InputFormat的具体实现DBInputFormat
+执行map task
+在我们写代码的时候，可以覆盖setup、map、cleanup方法；
+框架调用map的时候，是通过反射的方式产生的，然后调用实例化对象中的run()。
+
+Mapper类
+
+Mapper类
+
+注意我们Mapper类的write()方法，其实是调用了org.apache.hadoop.mapreduce.Mapper.Context
+程序真正执行时，是启动了一个YarnChild类，下面我们来分析框架如何调用map task或者reduce task。
+
+YarnChild类的run()方法
+
+YarnChild类的run()方法
+
+看一下taskFinal的一个实现类是MapTask。
+taskFinal的一个实现类是MapTask
+
+taskFinal的一个实现类是MapTask
+
+继续分析下面的runNewMapper()方法
+
+下面跳过一部分代码截图......
+
+下面跳过一部分代码截图……
+
+[runNewMapper()方法]
+
+runNewMapper()方法
+在这里可以看出：
+
+如果没有reduce task，那么map直接把输出。如果有，创建排序的输出。
+在这里，output实际上是WordCountMapper类中的map()方法里面的context.write()实际调用，就是在output中调用的。
+
+接下来分析NewOutputCollector类的实现的构造方法，partitioner类是在这里实例化的。
+
+NewOutputCollector类的实现的构造方法
+
+NewOutputCollector类的实现的构造方法
+
+分区
+我们还是在NewOutputCollector方法里主要看看write(…)方法。
+
+NewOutputCollector的write(...)方法
+
+NewOutputCollector的write(…)方法
+
+当在WordCountMapper类的map()方法中调用context.write(…)的时候，实际上是调用collector.collect(…) ，在这个方法的形参中，第三个参数就是分区。
+
+collector.collect(...)方法
+
+collector.collect(…)方法
+
+在这里collector的实现类是MapOutputBuffer类。
+常见异常，以及SpillThread
+
+常见异常，以及SpillThread
+
+排序
+我们就到了SpillThread类，接下来分析SpillThread类，直接看run()方法，代码比较简洁：
+
+SpillThread类的run()方法
+
+SpillThread类的run()方法
+
+继续分析sortAndSpill()方法，可以看到，在spill之前，会先进行sort操作。
+sortAndSpill()方法
+
+sortAndSpill()方法
+
+合并
+现在我们任然在SpillThread类里面，继续看下面的代码：
+
+SpillThread类里面的合并逻辑代码部分
+
+SpillThread类里面的合并逻辑代码部分
+上面的代码说明：如果没有combiner，直接把写入到磁盘。如果有combiner，先执行combiner再写入磁盘。
+
+写入磁盘(spill)
+写入磁盘(spill)，实际上是通过调用InMemoryWriter来实现的。
+
+写入磁盘(spill)
+
+写入磁盘(spill)
+
+reduce的全过程
+上面已经把map的过程走完了，截图真累！！下面我们简单看看Reduce吧！Reducer和Mapper很类似,这里就不一一解释了：
+Reducer和Mapper很类似
+
+Reducer和Mapper很类似
+
+直奔主题ReduceTask的run()方法
+
+img
+
+继续向下看代码。
+运行shuffer代码逻辑
+
+运行shuffer代码逻辑
+
+查看shuffleComsumerPlugin.run()的时候，跳转到Shuffle类中。
