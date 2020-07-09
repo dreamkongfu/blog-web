@@ -1,0 +1,159 @@
+2PC
+APP -》 订单业务逻辑服务（MQClient）-》订单数据访问服务-》SQL
+第一阶段 消息落地数据库
+a.数据库里 写入 Order 表和消息表
+Orders(orderID,uid,price,timestamp,status)  ------
+mqMessage(msgid,content,topic,status,create_time,delay)-------------   Transaction
+
+
+第二阶段 消息发送MQ
+a.MQClient读取mqMessage消息，不断重试确保发送到MQ
+b. ack为-1 ，一直发
+c. ack=0,发送成功， 
+d MQClient发送给数据访问处理器 删除消息命令
+e.数据访问处理器 去数据库中删除消息
+
+问题：发送端消息不幂等
+     订单业务逻辑服务冗余部署，当机重启，拉取未完成的 mqMessage, 重复提交
+     
+     
+     
+     
+本地事务消息
+
+第二阶段 消息发送到MQ
+事务投递任务: 将已提交的事务消息投递给MQ
+class MsgDiliverTask implements Runnable{
+    public void run(){
+          while(true){
+               if(state.get().equals(state.RUNNING)){
+                     break;
+               }
+               try{
+                  Msg msg = null;
+                  try{
+                     //出队列
+                     msg = msgQueue.poll(getTimeoutMs,TimeUnit.MILLISECONDS);
+                  }catch(InterructedException ex){}
+                  if(msg == null){
+                     continue;
+                  }
+                  Log.debug("poll msg {}",msg);
+                  int dealedTime = msg.getHaveDealedTimes()+1;
+                  msg.sethaveDealedTimes(dealedTime);
+                  MsgInfo msgInfo = msgStorage.getMsgById(msg);
+                  Log.debug("getMsgInfo from DB"）
+                  if(msgInfo == null){
+                  }
+                  //获取到msgInfo
+                  Message mqMsg = buildMsg(msgInfo);
+                  Log.debug("will sendMsg{}",mqMsg);
+                  SendResult result = producer.send(mqMsg);
+                  Log.info("msgId")
+                  if(null == result || result.getSendStatus() != SendStatus.SEND_OK){
+                       //投递失败，重入时间轮
+                       if(deadedTime < maxDealTIme){
+                          long nextExpireTime = System.currentTimeMillis() + timeOutData(dealedTime];
+                          msg.setNextExpireTime(nextExpireTime);
+                          timeWheel.put(msg);
+                       }
+
+                  }else if (result.getSendStatus() == SendStatus.SEND_OK){
+                      int res = msgStorage.updateSendMsg(msg);
+                  }
+
+
+               }
+          }
+    }
+}
+时间轮线程
+class TimeWheelTask implements Runnable{
+    public void run(){
+        try{
+           if(state.get().equals(State.RUNNING)){
+              long cruTime = System.currentTimeMillis();
+              Msg msg = timeWheel.peek();
+              //找没有超时的消息
+              while(msg!=null && msg.getNextExpireTime() <= cruTime){
+                  msg = timeWheel.poll();
+                  msgQueue.put(msg);
+                  msg = timeWhile.peek();
+              }
+           }
+        }catch(Exception ex){
+        }
+    }
+}
+清理线程
+class CleanMsgTask implements Runnable{
+    public void run(){
+        if(state.get().equals(State.RUNNING)){
+             Log.debug("DeleteMsg start run");
+             try{
+                 Iterator<DataSource> it = msgStorage.getDatasourceMap().values().iterator();
+                 while(it.hasNext()){
+                    DataSource dataSrc = it.next();
+                    boolean canExe = holdLock;
+                    if(canExe){
+                        Log.info("DeleteMsgRunnable run");
+                        int count = 0;
+                        int num = config.deleteMsgOneTimeNum;
+                        while(num == config.deleteMsgOneTimeNum && count < maxDealNumOneTime){
+                              try{
+                                  num = msgStorage.deleteSendedMsg(dataSrc,config.deleteMsgOneTimeNum);
+                                  count += num;
+                              }catch(SQLException s){
+                                  
+                              }
+                        }
+                    }
+                 }
+             } catch(Exception ex){
+             }
+        }
+    }
+}
+事务消息补漏线程：扫描最近10分钟未提交事务消息，放置异常场景消息丢失
+
+public void run(){
+if(state.get().equals(State.RUNNING)){
+    Iterator<DataSource> it = msgStorage.getDataSourceMap().values().iterator();
+    while(it.hasNext()){
+        DataSource dataSrc = it.next();
+        boolean canExe = holdLock;
+        if(canExe){
+            int num = LimitNum;
+            int count = 0;
+            while(num == LimitNum&& count < maxDealNumOneTIme){
+                try{
+                    List<MsgInfo> list = msgStorage.getWaitingMsg(dataSrc,limitNum);
+                    num = list.size();
+                    if(num > 0){
+                        Log.debug("can db get msg size",num);
+                    }
+                    count += numl
+                    for(MsgInfo msgInfo : list){
+                       try{
+                          Message mqMsg = buildMsg(msgInfo);
+                          SendResult result = producer.send(mq.Msg);
+                          //发送消息后
+                          if(result  !=null && result.getSendStatus == SendStatus.SEND_OK){
+                              int res = msgStorage.updateMsgStatus(dataSrc,msgInfo.getId);
+                              
+                          }
+                       }
+                    }
+                }
+            }
+        }
+    }
+}
+
+}
+
+
+
+
+
+
