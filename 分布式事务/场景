@@ -1,0 +1,64 @@
+购买场景
+同步场景
+     减商品库存，建立订单
+     前台支付
+异步场景
+     前台超时未支付（本地事务，二阶段提交+幂等性设计）
+ 
+
+同步场景
+     减商品库存，建立订单
+     前台支付
+     
+     
+     SAGS： 
+     一个分布式事务拆成多个本地事务，每个本地事务都有相应的执行模块和补偿模块
+     当任意一个本地事务出错，调用补偿方法恢复之前的事务，达成事务的最终一致性
+     子事务：T1，T2，T3......Tn 补偿方法：C1,C2,C3....Cn
+     或者序列，T1，T2，T3..Tj, Cj-1,Cj-2...C1,
+     
+     Saga 隔离
+         业务层控制并发
+        在应用层加锁
+        应用层先冻结资源
+     Saga三大关键技术： 异步补偿机制，幂等补偿接口，记录请求调用
+     事务主表:TXId,state,step
+        
+     失败后， 补偿操作： 向后恢复，补偿所有已完成的事务，如果任一子任务失败
+                            向前恢复，重试失败的事务，假设每个子事务最终都会成功
+                            
+                            
+     业务逻辑层Proxy设计（基于拦截技术）
+                         交易业务逻辑层加事务注解@Around("execution()&&@annonation(TX))
+                         Proxy 在真正业务逻辑被调用之前，生成一个全局唯一TXID标示事务租，TXID保存在全局变量里，事前拦截器写入，
+                               并向事务组表txgroup写入TXID并把事务组置为开始状态，完成业务操作后，清除TXID标识
+                         交易业务逻辑层调用数据访问层前，通过RPCProxy代理记录当前调用请求上下文参数
+                                                   如果业务成功，调用记录删除
+                                                   如果调用异常，根据记录反向补偿
+     分布式事务补偿服务
+                         事务组表txgroup（数据库TDB） 
+                                 记录事务组状态
+                                 txid,state,timestamp
+                         事务调用组表txrecord(数据库表TDB）
+                                 记录事务组内的每一次调用以及相关参数
+                                 txid,actonid,callmethod,pramatype,params
+                          补偿策略 txcomprepensate
+                                 id,step,txid,success,createTime,updateTime
+                                 调用执行失败，修改事务组状态
+                                 分布式事务补偿服务异步执行补偿
+      Schedule：定期扫描，是否有失败的
+                根据事务调用组表 的补偿方法 和参数，补偿
+                补偿结束后 改状态为补偿过
+                
+      Sagas失败
+               记录错误日志
+               报警
+               人工介入
+     structure:
+     saga_common: saga api 和基类
+     saga_dubbo: saga dubbo客户端
+     saga_nxrpc:  saga nxrpc 客户端
+     saga_tm : saga服务器，SB应用
+     
+     
+     
