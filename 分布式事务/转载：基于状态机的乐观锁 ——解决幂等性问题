@@ -1,0 +1,100 @@
+连接： https://www.jianshu.com/p/c6e9ddbea022
+作者： 来杯熊酱不加糖
+基于状态机的乐观锁 ——解决幂等性问题
+在开发过程中，我们经常面对这种情况：
+
+        1、点击一个按钮无反应时，会不停的重复点击，如果前端代码未做限制，则会多次调用controller接口，如果controller不做特殊处理，往往会导致系统数据异常。
+
+         2、当多个用户同时做一项操作时，也会面临同样的问题。
+
+        经过分析，我们发现以上两种情况都是资源争夺的问题，第一种情况是资源浪费，第二种情况是资源竞争，如何解决这种幂等性的问题呢？那么大家首先想到的是加锁。
+
+        锁分为乐观锁和悲观锁。
+
+        悲观锁：select * from table where id=xx for  update  //   这条 sql 语句锁定了表中所有符合检索条件（ id=xx ）的记录。（需要注意的是for update要放到事务中，即begin和commit中，否者不起作用，当事务提交后，锁会释放）。
+
+        乐观锁：select  * from table where id=xxx ；update table set ......//乐观锁在数据进行提交更新时，才会对数据的冲突与否进行检测，如果冲突了，则让返回用户错误信息，即只在更新的那一刻锁表，其他时间不锁表。
+
+         悲观锁简单，主要处理写多读少的问题，保证数据安全，乐观锁相对复杂，主要处理读多写少的问题，提交系统吞吐量。相对来说，乐观锁效率更高。
+
+        我们通过乐观锁解决以上问题，以下三种方式实现乐观锁：
+
+         1、通过增加版本号实现，我在很多项目上都是通过版本号来实现乐观锁的，但是加版本号毕竟对代码造成了侵入性，而且数据库会增加版本号字段。在很多场景尤其是系统升级时，并不方便。
+
+           例子：  update  table  set  col =#{col},version =version +1
+
+                        where id =#{id} and version =#{version }
+
+     2、基于状态控制或时间戳实现乐观锁，状态控制实现乐观锁在部分场景可以用到
+
+            如：购物下单，逻辑是当订单状态为已付款，才允许发货： 
+
+             核心SQL        update  table  set  status=下一种状态  
+
+                                    where  id =#{id} and status=#{status} 
+
+            时间戳同版本号类似。
+
+            还有一种场景，我们可以判断当库存 - 下单数量>0 实现。如：
+
+            update table  set amout=amout-#{buys}
+
+            where id=#{id} and amout-#{buys}>0
+
+     3、redis缓存实现乐观锁：
+
+         原理同方案 1，只是在缓存中实现。
+
+
+   实例演示：         
+
+   1)  版本号实现乐观锁，以商品下单逻辑实例：
+
+            Integer amout =info.getAmout();获取库存
+
+           If(amout <bugs)
+
+           {//库存不够，直接返回false
+
+                return false;
+
+            }
+
+            //获取版本号
+
+           Integer version=info.getVersio()
+
+           if(object.updateAmoutByVersion(id,version)>0)
+
+          {//带版本号更新库存
+
+                    return true;
+
+           }
+
+     2）通过状态机实现乐观锁
+
+         其他代码不变
+
+        if(object.updateAmoutBystate(id,buys)>0)
+
+        {//状态机实现乐观锁
+
+              return true;
+
+        }
+
+核心SQL:update table  set amout=amout-#{buys}
+
+                where id=#{id} and amout-#{buys}>0
+
+条件加上 库存-购买数>0  即可以保证数据一致性
+
+3人点赞
+性能优化
+
+
+作者：来杯熊酱不加糖
+链接：https://www.jianshu.com/p/c6e9ddbea022
+来源：简书
+著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
