@@ -1,0 +1,14 @@
+RocketMQ
+正常流程
+MQClient -》step1 数据库写数据
+         -》step1  premessage to MQ Server
+         <-  step1 success from MQ server 
+          -> step2 Commit or Rollback 
+异常流程
+MQClient -》step1 数据库写数据
+         -》step1  premessage to MQ Server
+         <-  step1 success from MQ server 
+          -> step2 no response to MQ server
+          <-  回查事务状态 from MQ server
+          -》 step2 数据库状态 
+          -》 step2 根据数据库状态Commit 或者Rollback to MQ server.
