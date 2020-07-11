@@ -59,6 +59,59 @@
      saga_dubbo: saga dubbo客户端
      saga_nxrpc:  saga nxrpc 客户端
      saga_tm : saga服务器，SB应用
+    事务的拦截器(proxy) 生成事务ID，插入事务TDB的txgroup表 
+     @Around("execution(* *(..)) && @annotation(com.nx.arth.tx.saga.common.annotation.SagaTransactions")
+     public Object around(ProceedingJoinPoint point) throws Throwable{
+               /**/ 
+               
+               TransactionManager.startTransaction();
+               Logger.info("desc=startTransaction txid="+TransactionManager.getTransactionId());
+               Date now = new Date();
+               TransactionGroup transactionGroup = new TransactionGroup();
+               transactionGroup.setTxid(TransactionManager.getTransactionId());
+               transactionGroup.setState(TransactionState.start.getState());
+               transactionGroup.setPriortity(2);
+               transactionGroup.setCreateTime(now);
+               transactionGroup.setUpdateTime(now);
+               transactionDao.insert(transactionGroup);
+               
+               //执行方法
+               Object result = point.proceed();
+               //正常事务结束
+               TransactionGroup transactionGroupInThread = transactionDao.select(transactionGroup.getTxid());
+               if(transactionGroupInThread.getState().equals(TransactionState.start.getState())){
+                    transactionGroup.setState(TransactionState.end.getState());
+                    transactionGroup.setUpdateTime(new Date(System.currentTimeMillis()));
+                    transactionGroupDao.update(transactionGroup);
+                    Logger.info("k=s act=endTransaction txid="+ TransactionManager.getTransactionId());
+               }
+               TransactionManager.endTransaction();
+               return result;         
+     
+     }
+     事务步骤拦截器：获取每一步的上下文，插入事务TDB的txrecord 表
+     @Around("execution(* *(..))&& @annotation(com.nx.arth.tx.saga.common.annotation.Compensate)")
+     public Object around(ProceedingJoinPoint point)throw Throwable{
+     if(StringUtils.isEmpty(TransactionManager.getTransactionId())){
+           return point.proceed();
+     }
+     Class<?> targetClass = point.getTarget().getClass();
+     MethodSignature methodSignature = (MethodSignature)point.getSignature();
+     Method method = targetClass.getMethod();
+     
+     
+     
+     
+     }
+     
+     
+     
+     
+     
+     
+     
+     
+     
      
      
      
